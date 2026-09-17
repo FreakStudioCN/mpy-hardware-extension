@@ -41,7 +41,7 @@ from app.prompt_assembly import (  # noqa: F401
 from app.sse_translate import (  # noqa: F401
     DeepSeekProvider, OpenAIProvider, UpstreamError, _PAYLOAD_VALIDATORS,
     _call_deepseek_plain, _deepseek_payload, _deepseek_tools,
-    _noncanonical_tools, _open_deepseek_stream, _payload_violation, _sse,
+    _noncanonical_tools, _open_deepseek_stream, _open_upstream, _payload_violation, _sse,
     _stub_sse, _translate_deepseek_stream, get_llm_provider,
     llm_provider_configured,
 )
@@ -114,8 +114,13 @@ class _CircuitBreaker:
 
 # A status that signals a transient upstream OUTAGE (worth tripping the breaker),
 # as opposed to a 4xx config/auth error (bad key, bad request) which should not.
+# A SUPERSET of classify_upstream_rejection's outage set, and deliberately so. 408 belongs
+# in both, and the two disagreeing about it is what let a timeout read as transient in one
+# path and terminal in the other. 429 belongs only here: classify splits it into
+# rate_limited or quota by reading the body, and a bare error has no body to split on.
+# Do not "align" the two sets by dropping it.
 def _is_outage_status(status: int) -> bool:
-    return status == 0 or status == 429 or status >= 500
+    return status == 0 or status == 408 or status == 429 or status >= 500
 
 
 _deepseek_breaker = _CircuitBreaker()
@@ -272,11 +277,20 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
         try:
             upstream = await to_thread(provider.open_stream, body)
         except UpstreamError as error:
-            # Only a transient outage (timeout/5xx/429) trips the breaker; a 4xx
-            # (bad key/request) is a config error that retrying won't fix.
-            if breaker_enabled and _is_outage_status(error.status):
+            # Only a transient outage or a rate-limit storm trips the breaker; a quota
+            # rejection is not transient (the account stays dry until topped up) and a 4xx
+            # config/auth error is not the upstream's fault, so neither should open it and
+            # hide the actionable per-request kind behind a generic breaker 503. A bare
+            # UpstreamError with no kind (e.g. a monkeypatched test) falls back to the old
+            # status-based check.
+            trips_breaker = (
+                error.kind in ("outage", "rate_limited")
+                if error.kind is not None
+                else _is_outage_status(error.status)
+            )
+            if breaker_enabled and trips_breaker:
                 _deepseek_breaker.record_failure()
-            logger.warning("llm upstream error", extra={"status": error.status})
+            logger.warning("llm upstream error", extra={"status": error.status, "kind": error.kind})
             credit_store.refund(user, 1)
             analytics.record_llm_turn(
                 trace_id=body.get("trace_id"),
@@ -287,10 +301,13 @@ async def llm_messages(request: Request, user: dict = Depends(get_current_user))
                 total_tokens=None,
                 credits_charged=0,
                 status="error",
-                error_kind="upstream_error",
+                error_kind=f"upstream_error:{error.kind}" if error.kind else "upstream_error",
             )
             llm_sessions.release(session_id, "upstream_error")
-            raise HTTPException(status_code=502, detail={"error": "llm_upstream_error", "status": error.status})
+            raise HTTPException(
+                status_code=502,
+                detail={"error": "llm_upstream_error", "status": error.status, "kind": error.kind},
+            )
         if breaker_enabled:
             _deepseek_breaker.record_success()
         def on_interrupt(error: BaseException) -> None:

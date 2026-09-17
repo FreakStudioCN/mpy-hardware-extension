@@ -27,9 +27,8 @@ blockless-installer/
   manifest/
     installer.manifest.json  # pinned components + checksums (see §2)
   core/                      # shared Rust crate: all install logic (no GUI, no OS shell)
-  app/
-    macos/                   # thin Tauri shell -> core
-    windows/                 # thin Tauri shell -> core
+  app/                       # single cross-platform Tauri 2 crate -> core
+    ui/                      # static HTML/CSS/JS frontend, no build step
   components/                # optional embedded artifacts for an offline bundle (see §5)
 ```
 
@@ -63,7 +62,7 @@ or an offline bundle by swapping sources.
     "uv":       { "source": "download", "version": "0.11.29", "sha256": { "darwin-aarch64": "…", "win32-x64": "…", "…": "…" } },
     "python":   { "source": "managed", "manager": "uv", "series": "3.12" },
     "mpremote": { "source": "pip", "version": "1.28.0" },
-    "extension":{ "source": "bundled", "id": "blockless.mpy-hardware-extension", "version": "0.4.2",
+    "extension":{ "source": "bundled", "id": "blockless.mpy-hardware-extension", "version": "0.4.3",
                   "sha256": "…", "path": "components/mpy-hardware-extension.vsix" },
     "pythonExtension": { "source": "marketplace", "id": "ms-python.python" }  // pulls ms-python.vscode-pylance
   }
@@ -88,7 +87,7 @@ plus the artifacts under `components/`. No code change.
 | uv | 0.11.29 | astral.sh install script | pinned `sha256` in the manifest |
 | Python | 3.12 (latest patch) | uv-managed, contained | uv verifies its own download |
 | mpremote | 1.28.0 | `uv pip install` | pip resolution |
-| Blockless extension | pinned VSIX (0.4.2 today) | bundled | manifest `sha256` |
+| Blockless extension | pinned VSIX (0.4.3 today) | bundled | manifest `sha256` |
 | MS Python (+ Pylance) | latest | Marketplace | Marketplace |
 
 VS Code is the one component whose checksum is resolved at install time (the update API returns the
@@ -196,6 +195,16 @@ contained runtime is under the user's Application Support. Windows uses VS Code 
 (`%LOCALAPPDATA%`), uv unmanaged-install, and a per-user contained runtime. If a step would require
 elevation, it fails with guidance rather than prompting for admin.
 
+**WebView2 (GUI installer, Windows).** A fresh machine must be assumed to have no WebView2 runtime
+at all (fact-checked against Microsoft's distribution doc and the Tauri source, 2026-09-11). The
+NSIS installer ships in per-user mode (`installMode: "currentUser"`); its `webviewInstallMode` is
+`{ "type": "downloadBootstrapper", "silent": true }`, never left to Tauri's default -- Microsoft's
+Evergreen bootstrapper installs per-user when it is itself run non-elevated, so "no admin, ever"
+holds through the WebView2 install too, with no separate prompt. If the bootstrapper is ever
+observed to elevate on a real machine, the documented fallback is a fixed-runtime webview
+(`webviewInstallMode: { "type": "fixedRuntime", "path": ... }`, ~180 MB shipped app-local, zero
+install) -- not yet adopted, since the download-bootstrapper path is unproven on hardware.
+
 ---
 
 ## 11. Proxy / network failure handling
@@ -253,10 +262,14 @@ call the same core operations.
 
 ---
 
-## Open items before the GUI PR
+## Open items
+
+The GUI PR landed (this doc's `app/` layout above is what actually shipped), so the items below are
+no longer "before the GUI PR" -- none of them were things this PR closed, and none blocked it either.
 
 - Sign-off on the manifest schema (§2) and the pinned set (§3).
 - Populate real `sha256` values in the first manifest.
 - Decide the offline-bundle trigger (a separate build target vs a flag).
-- Code signing + notarization (Apple Developer cert + notarization; Windows Authenticode), separate
-  track, real cost + lead time, needed before public distribution.
+- Code signing + notarization (Apple Developer cert + notarization; Windows Authenticode) -- the
+  separate track that blocks **public distribution** specifically, real cost + lead time, not
+  resolved by anything above.

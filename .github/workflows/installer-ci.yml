@@ -1,0 +1,181 @@
+name: Installer CI
+
+on:
+  # Matches ci.yml: a branch push runs nothing, the pull request is the gate,
+  # and main is re-checked after a merge. Before this, a push to any branch
+  # started all three platforms, so a branch pushed and then opened as a pull
+  # request paid for two full runs of the same commit.
+  push:
+    branches: [main]
+    paths:
+      - "blockless-installer/**"
+      # A change to the workflow, or to the line-ending rules the tests depend
+      # on, has to re-run the workflow. Without these two the fix for a red run
+      # can land and CI stays silent, still showing the old failure.
+      - ".github/workflows/installer-ci.yml"
+      - ".gitattributes"
+  pull_request:
+    paths:
+      - "blockless-installer/**"
+      # A change to the workflow, or to the line-ending rules the tests depend
+      # on, has to re-run the workflow. Without these two the fix for a red run
+      # can land and CI stays silent, still showing the old failure.
+      - ".github/workflows/installer-ci.yml"
+      - ".gitattributes"
+
+# A newer push to the same ref supersedes in-flight runs, so minutes are not
+# spent on stale commits. This matters more here than in the extension
+# workflow: three platforms, and the macOS and Windows jobs compile the whole
+# Tauri dependency tree. `github.workflow` is part of the group, so an
+# installer run can never cancel an extension run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow builds and tests. It publishes nothing and
+# writes nothing back to the repository, so read is sufficient.
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    name: installer core (lint + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      # Submodules are deliberately NOT fetched. Nothing under
+      # blockless-installer/ reads one, so this build does not need the cost --
+      # but state it rather than leaning on checkout's default, because a test
+      # that later reaches a submodule path would find an empty directory and
+      # fail for a reason nobody would look for here. The extension workflow
+      # does the opposite, on purpose: it needs them.
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      # Every other workflow here caches what it installs (`cache: npm`,
+      # `cache: pip`). Without this one, all three platforms recompile the whole
+      # dependency tree on every run. actions/cache is first-party, so this adds
+      # no third-party action to vet.
+      #
+      # The exact key covers both lock files and the toolchain pin, so a bump to
+      # any of them misses and rebuilds. `restore-keys` then DOES hand back the
+      # previous cache, stale objects included -- it is a prefix match and knows
+      # nothing about toolchains. That is safe, but not because of the key:
+      # cargo's own fingerprints embed the rustc version, so anything built by
+      # the old toolchain is recompiled rather than linked. The cost is that a
+      # restored-and-rebuilt target directory grows across bumps.
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      # rustup auto-installs the pinned toolchain (rust-toolchain.toml, incl. the
+      # clippy/rustfmt components) the first time cargo/rustup runs in this dir.
+      - name: show pinned toolchain
+        run: rustup show
+      # verify_parity_macos.rs shells out to verify-blockless.zsh by name. The
+      # script is plain text and file manipulation with no macOS-only APIs, so
+      # Linux zsh runs it correctly -- but ubuntu-latest ships no zsh at all,
+      # and without this every parity test fails NotFound rather than on
+      # anything it is meant to measure.
+      - name: install zsh (the mac parity suite shells out to it)
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+
+  macos:
+    name: installer core + gui (macos)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      # See the ubuntu job: submodules are deliberately not fetched.
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+            blockless-installer/app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: show pinned toolchain
+        run: rustup show
+      # macOS is half the acceptance rig and the primary dev platform, and two
+      # things here are true of no other runner. Its filesystem is
+      # case-insensitive by default, so sibling fixture paths differing only in
+      # case collide (ENOTDIR) where ubuntu sees two distinct paths and passes.
+      # And the mac script-parity suite (core/tests/verify_parity_macos.rs)
+      # shells out to verify-blockless.zsh, so running it on a real Mac is the
+      # closest CI gets to the rig.
+      - name: cargo test
+        run: cargo test --workspace
+      # app/ is excluded from the root workspace (see blockless-installer/
+      # Cargo.toml) and compiles only here and on windows -- it depends on
+      # webkit2gtk system packages ubuntu doesn't have, and on
+      # core::system::SystemEnvironment, which is itself cfg-gated to
+      # macOS/Windows. No bundling here (`cargo tauri build`); that stays
+      # local/rig-only.
+      - name: app crate -- cargo fmt --check
+        run: cargo fmt --manifest-path app/Cargo.toml -- --check
+      - name: app crate -- cargo clippy
+        run: cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings
+      - name: app crate -- cargo test
+        run: cargo test --manifest-path app/Cargo.toml
+
+  windows:
+    name: installer core + gui (windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: blockless-installer
+    steps:
+      # See the ubuntu job: submodules are deliberately not fetched.
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            blockless-installer/target
+            blockless-installer/app/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('blockless-installer/Cargo.lock', 'blockless-installer/app/Cargo.lock', 'blockless-installer/rust-toolchain.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: show pinned toolchain
+        run: rustup show
+      # pwsh path joins (Join-Path etc.) don't behave the same under a
+      # non-Windows pwsh, so verify-blockless.ps1's parity test
+      # (core/tests/verify_parity_windows.rs, #![cfg(windows)]) only ever
+      # compiles/runs here -- cargo test on ubuntu skips it entirely.
+      - name: cargo test
+        run: cargo test --workspace
+      # app/ (see the macos job's comment above for why it's excluded from
+      # the root workspace). fmt is OS-independent and already checked on
+      # macos, so this job just needs clippy + test -- test is what runs
+      # both CRT-static guards (app/tests/windows_crt_static.rs) against
+      # the real GUI exe.
+      - name: app crate -- cargo clippy
+        run: cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings
+      - name: app crate -- cargo test
+        run: cargo test --manifest-path app/Cargo.toml

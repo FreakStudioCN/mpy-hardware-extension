@@ -25,9 +25,9 @@ export type VerdictInput = {
 };
 
 // The sections of deploy_result.json that record how they were executed, paired with the words a
-// blocker should use for them. `mode` is the direct signal that a step did not touch the board;
-// firmware evidence is only a proxy for it, and a mock whose fake capture happened to name this
-// run's build would satisfy the proxy while touching nothing.
+// blocker should use for them. `evidence_mode` is the direct signal that a step did not touch the
+// board; firmware evidence is only a proxy for it, and a mock whose fake capture happened to name
+// this run's build would satisfy the proxy while touching nothing.
 const DEPLOY_STEPS: Array<[label: string, key: string]> = [
   ["upload", "upload_result"],
   ["clean", "clean_result"],
@@ -36,16 +36,21 @@ const DEPLOY_STEPS: Array<[label: string, key: string]> = [
   ["mip install", "mip_install"],
 ];
 
-// `mode` carries a step's OWN vocabulary, not a shared enum: clean reports "project_files" or
-// "erase_all", capture reports "pty" or "pipe". Only the literal "mock" is claimed here, so a step
-// that spells its real mode differently is never mistaken for a fake one.
+// `evidence_mode` is the canonical field: "live" or "mock", nothing else. `mode` carries a step's
+// OWN vocabulary instead — clean reports "project_files" or "erase_all", capture reports "pty" or
+// "pipe" — so it cannot say whether a step is mocked on its own; it stays a fallback for artifacts
+// written before evidence_mode existed. Only the literal "mock" is claimed on either field, so a
+// step that spells its real mode differently, or whose evidence_mode reads "mocked", is never
+// mistaken for a fake one.
 export function mockedDeploySteps(report: unknown): string[] {
   if (!report || typeof report !== "object") return [];
   const record = report as Record<string, unknown>;
   const mocked: string[] = [];
   for (const [label, key] of DEPLOY_STEPS) {
     const step = record[key];
-    if (step && typeof step === "object" && (step as Record<string, unknown>).mode === "mock") {
+    if (!step || typeof step !== "object") continue;
+    const s = step as Record<string, unknown>;
+    if (s.evidence_mode === "mock" || (s.evidence_mode === undefined && s.mode === "mock")) {
       mocked.push(label);
     }
   }

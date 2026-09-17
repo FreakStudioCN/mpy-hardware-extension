@@ -90,6 +90,96 @@ test("a structured llm_upstream_error is not retryable when its upstream status 
   });
 });
 
+test("a quota kind is NOT retryable even on a nested 429 (the 51-minute trap)", async () => {
+  // A quota rejection reads identically to rate limiting by nested status alone
+  // (both 429); only the kind the server classified it as tells them apart, and
+  // retrying a dry account just burns calls that will all fail the same way.
+  const client = createLlmClient({
+    apiBaseUrl: "https://api.example",
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ detail: { error: "llm_upstream_error", status: 429, kind: "quota" } }),
+    })) as any,
+  });
+
+  await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+    assert.notEqual(error.retryable, true);
+    assert.equal(error.message, "llm_upstream_quota");
+    return true;
+  });
+});
+
+test("an auth kind is NOT retryable and renames the token", async () => {
+  const client = createLlmClient({
+    apiBaseUrl: "https://api.example",
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ detail: { error: "llm_upstream_error", status: 401, kind: "auth" } }),
+    })) as any,
+  });
+
+  await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+    assert.notEqual(error.retryable, true);
+    assert.equal(error.message, "llm_upstream_auth");
+    return true;
+  });
+});
+
+test("a rejected kind is NOT retryable and renames the token", async () => {
+  const client = createLlmClient({
+    apiBaseUrl: "https://api.example",
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ detail: { error: "llm_upstream_error", status: 400, kind: "rejected" } }),
+    })) as any,
+  });
+
+  await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+    assert.notEqual(error.retryable, true);
+    assert.equal(error.message, "llm_upstream_rejected");
+    return true;
+  });
+});
+
+for (const kind of ["outage", "rate_limited", "provider_rollout"]) {
+  test(`a ${kind} kind is retryable and keeps the generic message`, async () => {
+    const client = createLlmClient({
+      apiBaseUrl: "https://api.example",
+      fetchImpl: (async () => ({
+        ok: false,
+        status: 502,
+        json: async () => ({ detail: { error: "llm_upstream_error", status: 429, kind } }),
+      })) as any,
+    });
+
+    await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+      assert.equal(error.retryable, true);
+      assert.equal(error.message, "llm_upstream_error");
+      return true;
+    });
+  });
+}
+
+test("an unknown upstream kind falls back to nested status instead of becoming retryable by default", async () => {
+  const client = createLlmClient({
+    apiBaseUrl: "https://api.example",
+    fetchImpl: (async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({ detail: { error: "llm_upstream_error", status: 400, kind: "billing" } }),
+    })) as any,
+  });
+
+  await assert.rejects(client.streamMessages({ messages: [] }), (error: any) => {
+    assert.notEqual(error.retryable, true);
+    assert.equal(error.message, "llm_upstream_error");
+    return true;
+  });
+});
+
 test("a 429 from the LLM endpoint is retryable", async () => {
   const client = createLlmClient({
     apiBaseUrl: "https://api.example",

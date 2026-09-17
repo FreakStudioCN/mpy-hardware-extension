@@ -3,3 +3,11 @@ assets/*.vsix
 
 # logs / local scratch
 *.log
+
+# Rust build output (Cargo.lock IS committed; this is a binary workspace)
+target/
+
+# tauri_build::build() writes these under app/ on every macOS/Windows build
+# (capabilities.json, acl-manifests.json, the generated ACL JSON schema) --
+# derived from app/capabilities/, not hand-maintained.
+app/gen/

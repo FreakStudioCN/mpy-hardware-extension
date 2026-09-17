@@ -1,0 +1,11 @@
+{
+    "url": "https://vscode.download.prss.microsoft.com/dbazure/download/stable/88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f/VSCode-darwin-universal.zip",
+    "name": "1.136.2",
+    "version": "88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f",
+    "productVersion": "1.136.2",
+    "hash": "95b5aa20d6717a8638fbd97e2f38ef89d57cfa23",
+    "timestamp": 1788559134650,
+    "sha256hash": "a7b138cc78357c3b7cc0cf89812cdc1e36898fff0e4ae0f8fe3f7a27f6f7264a",
+    "supportsFastUpdate": true,
+    "notes": "88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f"
+}

@@ -145,11 +145,14 @@ def _stub_sse(meter=None):
 
 
 class UpstreamError(Exception):
-    def __init__(self, status: int):
+    def __init__(self, status: int, kind: str | None = None):
         self.status = status
+        # None on a bare/legacy raise (e.g. a monkeypatched test) -- callers that key
+        # behavior off kind must fall back to status in that case.
+        self.kind = kind
 
 
-from app.llm_providers import DeepSeekProvider, OpenAIProvider, _log_upstream_rejection, get_llm_provider, is_partial_rollout_rejection, llm_provider_configured, read_upstream_body  # noqa: F401 - providers live there (line budget); re-exported onward via routes_llm
+from app.llm_providers import DeepSeekProvider, OpenAIProvider, _log_upstream_rejection, classify_upstream_rejection, get_llm_provider, is_partial_rollout_rejection, llm_provider_configured, read_upstream_body  # noqa: F401 - providers live there (line budget); re-exported onward via routes_llm
 
 
 def _deepseek_payload(body: dict[str, Any], *, provider=None) -> dict[str, Any]:
@@ -190,6 +193,60 @@ def _deepseek_payload(body: dict[str, Any], *, provider=None) -> dict[str, Any]:
     return payload
 
 
+# Retry only the connect / pre-first-byte phase: this returns BEFORE any response byte is
+# yielded and before the turn is metered, so a retry can never double-charge. A mid-stream
+# drop is handled downstream and is NOT retried. The blocking sleep is off the event loop
+# either way: to_thread for the streaming open, the sync route's own threadpool for the
+# plain call (_call_deepseek_plain's only production caller, web_recommend, is a sync def).
+#
+# An outage is all-or-nothing, so a second attempt is either enough or hopeless. A PARTIAL
+# ROLLOUT is different in kind: it rejects a fixed FRACTION of calls, so the budget has to beat
+# that fraction rather than merely try again. Measured ~1 call in 6, where two attempts still
+# lose 1 in 36 and a ~100-call build run therefore dies about 94% of the time -- which would
+# leave this retry unable to do the job it exists for. Five attempts put run survival above 90%.
+# Cheap to spend: these rejections come back in under two seconds and never reach the provider's
+# model, so the ceiling is a few seconds inside to_thread, off the event loop.
+#
+# A QUOTA rejection gets the default budget of 1, not one of the entries below: it returns in
+# under two seconds with a refund, but it is not transient -- the account stays dry until
+# someone tops it up, so a second attempt only burns a call the first one already answered.
+_OPEN_RETRY_BUDGET = {"provider_rollout": 5, "outage": 2, "rate_limited": 2}
+
+
+def _open_upstream(request: urllib.request.Request, timeout: int):
+    """Open an upstream POST, retrying the connect/pre-first-byte phase per the
+    rejection's kind. Shared by the streaming open (_open_deepseek_stream) and the
+    tool-free plain call (_call_deepseek_plain) so a provider mid-rollout or a real
+    rate-limit storm gets the same survival odds on both paths, while a dry-quota
+    account or a bad request still fails on the first attempt everywhere."""
+    attempt = 0
+    while True:
+        try:
+            return urllib.request.urlopen(request, timeout=timeout)
+        except urllib.error.HTTPError as error:
+            # Read the body BEFORE deciding: it is a stream, the first reader consumes it, and
+            # both the retry test and the log need it.
+            # NOT named `body`: that would shadow a caller's payload variable in a future edit
+            # that logs it, and could end up POSTing the error text on the next attempt.
+            err_body = read_upstream_body(error)
+            kind = classify_upstream_rejection(error.code, err_body)
+            budget = _OPEN_RETRY_BUDGET.get(kind, 1)
+            attempt += 1
+            if attempt < budget:
+                logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt})
+                time.sleep(0.5)
+                continue
+            _log_upstream_rejection(error, err_body)
+            raise UpstreamError(error.code, kind=kind)
+        except urllib.error.URLError:
+            attempt += 1
+            if attempt < _OPEN_RETRY_BUDGET["outage"]:
+                logger.warning("llm upstream open retry", extra={"status": 0, "attempt": attempt})
+                time.sleep(0.5)
+                continue
+            raise UpstreamError(0, kind="outage")
+
+
 def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
     base_env, base_default = (provider.base_url_env, provider.default_base_url) if provider else ("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     base_url = os.getenv(base_env, base_default).rstrip("/")
@@ -203,61 +260,19 @@ def _open_deepseek_stream(body: dict[str, Any], api_key: str, *, provider=None):
         },
         method="POST",
     )
-    # Retry only the connect / pre-first-byte phase: this returns BEFORE any SSE
-    # byte is yielded and before the turn is metered, so a retry can never
-    # double-charge. A mid-stream drop is handled downstream and is NOT retried.
-    # Runs inside to_thread, so the blocking sleep is off the event loop.
-    #
     # KNOWN COST of the single timeout knob. urlopen's `timeout` governs connect and
     # response-headers as well as each subsequent socket read, and urllib offers no way to split
     # them. Raising it to 600s for the reads therefore also lets an accept-then-hang provider pin
     # a to_thread worker, with a session slot held and a credit reserved. A partial-rollout
-    # rejection is retried up to 5 times below, so that ceiling is ~50 minutes rather than the ~20
-    # two attempts gave; the credit is refunded when the final UpstreamError raises. The client gives up sooner (undici's
-    # headersTimeout is 300s), so the user sees a failure while the server thread stays parked.
-    # Accepted because a real generate turn went silent for the full 300s and losing those is
-    # worse than holding threads during an outage. If outage-time threadpool exhaustion ever
-    # matters, the fix is a short timeout here for connect/headers and then raising the socket
-    # timeout on the returned response before it reaches the reader thread.
-    # An outage is all-or-nothing, so a second attempt is either enough or hopeless. A PARTIAL
-    # ROLLOUT is different in kind: it rejects a fixed FRACTION of calls, so the budget has to beat
-    # that fraction rather than merely try again. Measured ~1 call in 6, where two attempts still
-    # lose 1 in 36 and a ~100-call build run therefore dies about 94% of the time -- which would
-    # leave this retry unable to do the job it exists for. Five attempts put run survival above 90%.
-    # Cheap to spend: these rejections come back in under two seconds and never reach the provider's
-    # model, so the ceiling is a few seconds inside to_thread, off the event loop.
-    OUTAGE_OPEN_ATTEMPTS = 2
-    PARTIAL_ROLLOUT_OPEN_ATTEMPTS = 5
-    attempt = 0
-    while True:
-        try:
-            return urllib.request.urlopen(request, timeout=STREAM_READ_TIMEOUT_SECONDS)
-        except urllib.error.HTTPError as error:
-            # Read the body BEFORE deciding: it is a stream, the first reader consumes it, and
-            # both the retry test and the log need it.
-            # NOT named `body`: that is this function's payload parameter, and shadowing it here
-            # would mean a future edit that rebuilds the request per attempt POSTs the error text.
-            err_body = read_upstream_body(error)
-            if is_partial_rollout_rejection(error.code, err_body):
-                budget = PARTIAL_ROLLOUT_OPEN_ATTEMPTS
-            elif _R()._is_outage_status(error.code):
-                budget = OUTAGE_OPEN_ATTEMPTS
-            else:
-                budget = 1  # a badly formed request: re-sending it burns a call and delays the error
-            attempt += 1
-            if attempt < budget:
-                logger.warning("llm upstream open retry", extra={"status": error.code, "attempt": attempt})
-                time.sleep(0.5)
-                continue
-            _log_upstream_rejection(error, err_body)
-            raise UpstreamError(error.code)
-        except urllib.error.URLError:
-            attempt += 1
-            if attempt < OUTAGE_OPEN_ATTEMPTS:
-                logger.warning("llm upstream open retry", extra={"status": 0, "attempt": attempt})
-                time.sleep(0.5)
-                continue
-            raise UpstreamError(0)
+    # rejection is retried up to 5 times (see _open_upstream), so that ceiling is ~50 minutes
+    # rather than the ~20 two attempts gave; the credit is refunded when the final UpstreamError
+    # raises. The client gives up sooner (undici's headersTimeout is 300s), so the user sees a
+    # failure while the server thread stays parked. Accepted because a real generate turn went
+    # silent for the full 300s and losing those is worse than holding threads during an outage.
+    # If outage-time threadpool exhaustion ever matters, the fix is a short timeout here for
+    # connect/headers and then raising the socket timeout on the returned response before it
+    # reaches the reader thread.
+    return _R()._open_upstream(request, STREAM_READ_TIMEOUT_SECONDS)
 
 
 def _translate_deepseek_stream(upstream: Iterable[bytes], meter=None, on_interrupt=None):
@@ -498,7 +513,10 @@ def _call_deepseek_plain(
     prefix). Returns (text, usage). Raises UpstreamError on connect failure.
 
     timeout defaults to 120s for codegen; the anonymous web-recommend path passes a
-    short value so a hung connection can't hold a worker for two minutes.
+    short value so a hung connection can't hold a worker for two minutes. The open
+    is retried per _open_upstream's per-kind budget, so the real worst case is that
+    timeout times the budget (5 for a provider_rollout run of bad luck) plus the
+    inter-attempt sleep -- still well under two minutes for either caller's timeout.
 
     response_format is optional and only sent when provided (the web-recommend path passes
     {"type": "json_object"} for JSON mode); codegen callers omit it and are unaffected.
@@ -528,13 +546,7 @@ def _call_deepseek_plain(
         headers={"content-type": "application/json", "authorization": f"Bearer {os.environ[key_env]}"},
         method="POST",
     )
-    try:
-        upstream = urllib.request.urlopen(req, timeout=timeout)
-    except urllib.error.HTTPError as error:
-        _log_upstream_rejection(error)
-        raise UpstreamError(error.code)
-    except urllib.error.URLError:
-        raise UpstreamError(0)
+    upstream = _R()._open_upstream(req, timeout)
     text_parts: list[str] = []
     usage_obj: dict[str, Any] = {}
     try:

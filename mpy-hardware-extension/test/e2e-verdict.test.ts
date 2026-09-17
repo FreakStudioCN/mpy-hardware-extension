@@ -202,6 +202,60 @@ test("mockedDeploySteps does not mistake another step's mode vocabulary for a mo
   assert.deepEqual(mockedDeploySteps({ upload_result: { mode: "mocked" } }), []);
 });
 
+// --- evidence_mode: the canonical field, with mode kept as the old-artifact fallback ------------
+
+// The field the split exists for: a step can name evidence_mode directly, with no mode at all.
+test("mockedDeploySteps names a step whose evidence_mode is mock, with no mode field", () => {
+  assert.deepEqual(mockedDeploySteps({ upload_result: { evidence_mode: "mock" } }), ["upload"]);
+});
+
+// Artifacts written before evidence_mode existed carry only mode. Dropping this arm would stop
+// reading every archive that predates the split.
+test("mockedDeploySteps still names a step whose only field is mode: mock", () => {
+  assert.deepEqual(mockedDeploySteps({ upload_result: { mode: "mock" } }), ["upload"]);
+});
+
+// Neither field tolerates a near-miss. A prefix match on either would let this through.
+test("mockedDeploySteps does not match evidence_mode or mode spelled mocked", () => {
+  assert.deepEqual(mockedDeploySteps({ upload_result: { evidence_mode: "mocked" } }), []);
+  assert.deepEqual(mockedDeploySteps({ upload_result: { mode: "mocked" } }), []);
+});
+
+// The case that was invisible before the split: clean_device_project.py puts the OPERATION in
+// mode, never the word "mock", even under --mock. Only evidence_mode can name a mocked clean.
+test("mockedDeploySteps names a mocked clean even though mode reports its operation", () => {
+  assert.deepEqual(
+    mockedDeploySteps({ clean_result: { mode: "project_files", evidence_mode: "mock" } }),
+    ["clean"],
+  );
+});
+
+// The mirror case: a real clean, mode reporting its operation as always, evidence_mode saying so
+// explicitly. Must not be named.
+test("mockedDeploySteps does not name a real clean", () => {
+  assert.deepEqual(
+    mockedDeploySteps({ clean_result: { mode: "project_files", evidence_mode: "live" } }),
+    [],
+  );
+});
+
+// Once the canonical field exists it wins over the legacy fallback. Mixed-version artifacts can
+// retain mode: mock while a current producer explicitly records live evidence; treating that as
+// mocked would reject a real hardware run despite its authoritative field.
+test("mockedDeploySteps lets canonical live override a stale legacy mock mode", () => {
+  assert.deepEqual(
+    mockedDeploySteps({ upload_result: { mode: "mock", evidence_mode: "live" } }),
+    [],
+  );
+});
+
+test("mockedDeploySteps lets canonical mock override a legacy live mode", () => {
+  assert.deepEqual(
+    mockedDeploySteps({ upload_result: { mode: "live", evidence_mode: "mock" } }),
+    ["upload"],
+  );
+});
+
 test("mockedDeploySteps survives a missing, empty or malformed report", () => {
   assert.deepEqual(mockedDeploySteps(null), []);
   assert.deepEqual(mockedDeploySteps({}), []);

@@ -1,0 +1,32 @@
+[package]
+name = "blockless-installer-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+# step-level logging for the diagnostics bundle's logs/ (ARCHITECTURE §9).
+# No-op without a subscriber installed; the CLI installs the real writer
+# (see cli/Cargo.toml). default-features off: no attribute macros (no
+# #[instrument] anywhere), matches this file's own minimization style.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+# blocking + rustls-tls: no async runtime to thread through the CLI, no system
+# OpenSSL dependency. Honors HTTPS_PROXY/HTTP_PROXY env by default (§11).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+# diagnostics bundle: a plain container for logs/state/manifest, not
+# performance-sensitive, so deflate only (skip bzip2/zstd/aes backends).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+# capture ops.rs's tracing output (one process-global subscriber, installed
+# once via try_init -- see ops::tests::capturing_log_writer for why a
+# thread-local one races against the crate's other parallel tests), to prove
+# each op actually logs its steps rather than just compiling the macro calls.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

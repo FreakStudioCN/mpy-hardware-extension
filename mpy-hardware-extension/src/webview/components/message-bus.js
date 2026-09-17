@@ -15,8 +15,9 @@
         && t !== "cancelled" && t !== "awaiting_user" && t !== "stalled";
 
 
-      window.addEventListener("message", (event) => {
-        const msg = event.data;
+      // Named (not an inline arrow) so restore_replay below can re-enter it once per bundled message —
+      // see that branch for why.
+      function handleHostMessage(msg) {
         if (msg.type === "recipe_imported") { prefillImportedRecipe(msg.payload); }
         if (msg.type === "doctor_results") { renderDoctor(msg.items, msg.seq); }
         if (msg.type === "gen_driver_config") { renderGenDriver(msg.tabs); }
@@ -49,6 +50,30 @@
         // viewOnly marks a session with no saved snapshot: the feed becomes a read-only replay, and the
         // next Generate wipes it rather than appending a different session's run underneath it.
         if (msg.type === "restore_reset") { clearConversation(); if (msg.viewOnly) viewOnlyReplay = true; }
+        // The whole restore burst (reset + the generation boundary + feed + tabs + flows + terminal)
+        // arrives as ONE message, and always takes this branch and returns. It renders in a single
+        // synchronous task: a Generate click cannot land between two of its parts (a click used to land
+        // mid-delivery and render a stale tail into the new run). The mirror direction — Generate
+        // clicked before this message even arrives — is narrowed by dropping the whole bundle once
+        // `running` is already true: restore_replay is never emitted during a live run, so gating the
+        // OUTER envelope on it is safe here, unlike the shared live types (summary/serial_output/
+        // manifest_updated/...) nested inside it, which must stay ungated for their own live use and so
+        // cannot each carry this check individually. Narrowed, not closed: `running` is only set for a
+        // Generate- or Retry-started run (setRunning(true) in HomeWorkbench.js and, for Retry, in
+        // ActivityTimeline.js's retry card) — an optional-flow/gen-driver/MaixPy run dispatched without
+        // going through either leaves it false, so a stale envelope racing ONE of those is not caught
+        // here (a pre-existing, narrower window than the one this fix closes).
+        // Isolated per nested message: one throwing entry (a shape no producer emits today, but the
+        // bundle's contents are still host-authored data) must not truncate the rest of the burst.
+        if (msg.type === "restore_replay") {
+          if (running) return;
+          // Array.isArray, not `|| []`: a non-iterable `messages` (a number, an object) throws at the
+          // for..of header itself, OUTSIDE the per-entry try below, losing the whole delivery rather
+          // than one entry of it. Host-authored today, so unreachable, and free to rule out.
+          const nestedMessages = Array.isArray(msg.messages) ? msg.messages : [];
+          for (const nested of nestedMessages) { try { handleHostMessage(nested); } catch (e) { console.error("restore_replay: nested message failed", nested && nested.type, e); } }
+          return;
+        }
         // Rich feed replay (Stage 1): the host maps DURABLE transcript events to these ungated messages, so
         // the past run's narration re-renders on restore without touching the live-run gates. A user request
         // renders as its own card; a mapped line renders as a trace line, or an error line (kind:"error").
@@ -291,4 +316,5 @@
           setRunning(false);
           clearPending();
         }
-      });
+      }
+      window.addEventListener("message", (event) => handleHostMessage(event.data));

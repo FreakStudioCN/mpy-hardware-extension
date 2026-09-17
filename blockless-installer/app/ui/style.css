@@ -1,0 +1,191 @@
+:root {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --fg: #cccccc;
+  /* #8a8a8a cleared AA (4.83:1) on --bg but not on --surface (4.44:1,
+     the .step.done case) -- one value used on both backgrounds, so it
+     has to clear the darker pairing. */
+  --muted: #8f8f8f;
+  --accent: #0e70c0;
+  --accent-hover: #1177bb;
+  --danger: #c72e2e;
+  --danger-hover: #d94343;
+  /* Lighter than --danger-hover: that button-background red is ~3.8:1
+     against --bg at text size, below WCAG AA's 4.5:1 -- this is for text,
+     not a button fill, so it needs to actually be legible on its own. */
+  --error-text: #f08a8a;
+  --border: #3c3c3c;
+  --surface: #252526;
+  --success: #4caf50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    -apple-system, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+#app {
+  width: 100%;
+  max-width: 480px;
+  padding: 32px;
+}
+
+.screen.hidden {
+  display: none;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+p {
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* uninstall_outcome_message (app/src/main.rs) embeds a literal \n before
+   its "vscode_kept_but_owned" note; a plain <p>'s default white-space
+   would collapse that to a space and run the note into the summary line. */
+#ready-status {
+  white-space: pre-line;
+}
+
+.error {
+  color: var(--error-text);
+  font-size: 12px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-hover);
+}
+
+/* The ready screen's diagnostics button must not compete with Install,
+   the one primary action: an outlined secondary, same size. */
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+button.secondary:hover {
+  background: var(--surface);
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+button.danger:hover {
+  background: var(--danger-hover);
+}
+
+a {
+  color: var(--muted);
+  font-size: 12px;
+  display: inline-block;
+  margin-top: 16px;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--fg);
+}
+
+#step-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+
+.step {
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  background: var(--surface);
+  border-left: 3px solid var(--border);
+}
+
+.step.running {
+  border-left-color: var(--accent);
+}
+
+.step.running::after {
+  content: " \2026";
+}
+
+.step.done {
+  border-left-color: var(--success);
+  color: var(--muted);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 24px;
+  max-width: 360px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

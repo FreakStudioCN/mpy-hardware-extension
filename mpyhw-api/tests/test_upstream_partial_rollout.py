@@ -12,7 +12,7 @@ import urllib.request
 import pytest
 
 from app import sse_translate
-from app.llm_providers import is_partial_rollout_rejection
+from app.llm_providers import classify_upstream_rejection, is_partial_rollout_rejection
 
 pytestmark = pytest.mark.no_db
 
@@ -21,6 +21,9 @@ KIMI_BODY = (
     '"message":"missing required header Kimi-Api-Version",'
     '"request_id":"fdac0ebc5ee4ec60a242e0c2079b51fc"}}'
 )
+
+# The 51-minute trap, verbatim: a 429 that reads as rate limiting but means the account is dry.
+QUOTA_BODY = '{"error":{"message":"Insufficient Balance","type":"insufficient_quota"}}'
 
 
 def _http_error(code: int, body: str) -> urllib.error.HTTPError:
@@ -107,6 +110,7 @@ def test_the_rollout_budget_is_bounded_and_the_loop_terminates(monkeypatch):
     with pytest.raises(sse_translate.UpstreamError) as raised:
         sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
     assert raised.value.status == 400
+    assert raised.value.kind == "provider_rollout"
     assert len(attempts) == 5, "a provider that rejects every time must stop at the budget"
 
 
@@ -122,8 +126,9 @@ def test_an_outage_keeps_its_smaller_budget(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
 
-    with pytest.raises(sse_translate.UpstreamError):
+    with pytest.raises(sse_translate.UpstreamError) as raised:
         sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
+    assert raised.value.kind == "outage"
     assert len(attempts) == 2, "an outage retries once, not four times"
 
 
@@ -142,6 +147,7 @@ def test_open_stream_does_not_retry_a_genuinely_bad_request(monkeypatch):
         sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
 
     assert raised.value.status == 400
+    assert raised.value.kind == "rejected"
     assert len(attempts) == 1, "a malformed payload must fail on the first attempt"
 
 
@@ -162,3 +168,153 @@ def test_the_rejection_body_still_reaches_the_log(monkeypatch, caplog):
     logged = [r for r in caplog.records if r.getMessage() == "llm upstream rejected request"]
     assert logged, "a rejection that exhausts its retries must still be logged"
     assert "Kimi-Api-Version" in getattr(logged[-1], "body", ""), "the log must carry the real body"
+
+
+# --- classify_upstream_rejection -------------------------------------------------------
+
+
+@pytest.mark.parametrize("body", [
+    QUOTA_BODY,
+    '{"error":"exceeded_current_quota"}',
+    '{"error":"Account SUSPENDED for non-payment"}',
+    '{"error":"daily quota exhausted"}',
+])
+def test_a_429_naming_billing_classifies_as_quota(body):
+    assert classify_upstream_rejection(429, body) == "quota"
+
+
+def test_a_402_naming_billing_also_classifies_as_quota():
+    # Some providers reject a dry account with 402 Payment Required rather than 429.
+    assert classify_upstream_rejection(402, QUOTA_BODY) == "quota"
+
+
+def test_a_402_not_naming_billing_is_not_quota():
+    assert classify_upstream_rejection(402, "payment method declined") == "rejected"
+
+
+def test_a_plain_429_classifies_as_rate_limited():
+    assert classify_upstream_rejection(429, "too many requests") == "rate_limited"
+    assert classify_upstream_rejection(429, "") == "rate_limited"
+
+
+def test_a_missing_header_400_classifies_as_provider_rollout():
+    assert classify_upstream_rejection(400, KIMI_BODY) == "provider_rollout"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_401_and_403_classify_as_auth(status):
+    assert classify_upstream_rejection(status, "") == "auth"
+
+
+def test_an_ordinary_400_classifies_as_rejected():
+    body = '{"error":{"message":"unsupported parameter: top_k"}}'
+    assert classify_upstream_rejection(400, body) == "rejected"
+
+
+@pytest.mark.parametrize("status", [0, 500, 502, 503])
+def test_status_0_or_5xx_classifies_as_outage(status):
+    assert classify_upstream_rejection(status, "") == "outage"
+
+
+def test_a_request_timeout_classifies_as_outage_so_it_stays_retryable():
+    # A 408 is a transient timeout, and the client's status rule auto-retries it. Were it to
+    # fall through to "rejected", the client's kind path would mark it NON-retryable and tell
+    # the user the provider refused the request, which is both wrong and terminal.
+    assert classify_upstream_rejection(408, "") == "outage"
+    assert classify_upstream_rejection(408, "request timeout") == "outage"
+
+
+# --- per-kind retry budgets in _open_deepseek_stream ------------------------------------
+
+
+def test_a_quota_rejection_fails_fast_on_the_first_attempt(monkeypatch):
+    attempts = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(request)
+        raise _http_error(429, QUOTA_BODY)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
+
+    with pytest.raises(sse_translate.UpstreamError) as raised:
+        sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
+
+    assert raised.value.status == 429
+    assert raised.value.kind == "quota"
+    assert len(attempts) == 1, "a dry account must not be retried"
+
+
+def test_a_rate_limited_rejection_gets_the_outage_budget(monkeypatch):
+    attempts = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(request)
+        raise _http_error(429, "too many requests")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
+
+    with pytest.raises(sse_translate.UpstreamError) as raised:
+        sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
+
+    assert raised.value.kind == "rate_limited"
+    assert len(attempts) == 2, "a real rate-limit storm gets the outage budget, not one shot"
+
+
+def test_an_auth_rejection_fails_fast_on_the_first_attempt(monkeypatch):
+    attempts = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(request)
+        raise _http_error(401, "invalid api key")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
+
+    with pytest.raises(sse_translate.UpstreamError) as raised:
+        sse_translate._open_deepseek_stream({"messages": []}, "sk-test")
+
+    assert raised.value.status == 401
+    assert raised.value.kind == "auth"
+    assert len(attempts) == 1, "a rejected key must not be retried"
+
+
+# --- _call_deepseek_plain shares the same open-retry via _open_upstream ----------------
+
+
+def test_plain_call_retries_the_partial_rollout_rejection_and_succeeds(monkeypatch):
+    attempts = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(request)
+        if len(attempts) == 1:
+            raise _http_error(400, KIMI_BODY)
+        return [b'data: {"choices":[{"delta":{"content":"hi"}}]}\n', b"data: [DONE]\n"]
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+    text, _usage = sse_translate._call_deepseek_plain([{"role": "user", "content": "hi"}], 64)
+
+    assert text == "hi"
+    assert len(attempts) == 2, "the plain call must survive a partial-rollout rejection too"
+
+
+def test_plain_call_quota_rejection_fails_fast(monkeypatch):
+    attempts = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(request)
+        raise _http_error(429, QUOTA_BODY)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sse_translate.time, "sleep", lambda _s: None)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+    with pytest.raises(sse_translate.UpstreamError) as raised:
+        sse_translate._call_deepseek_plain([{"role": "user", "content": "hi"}], 64)
+
+    assert raised.value.kind == "quota"
+    assert len(attempts) == 1, "a dry account must not be retried on the plain path either"

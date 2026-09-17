@@ -12,6 +12,7 @@
 // TypeError, and the summary said "STALE DEVICE: nothing this run built reached the board" while
 // the file on the device was byte-identical to the one just uploaded. The two readings send you
 // at opposite bugs, so a crash has to be its own answer rather than a weak kind of foreign.
+//
 export type FirmwareEvidence =
   | { kind: "ran"; line: string }
   | { kind: "crashed"; line: string }
@@ -47,8 +48,8 @@ const SCAFFOLD_BOOT_MARKER = /^(MPYHW_READY|starting scheduler)$/;
 // remove. Other escape forms (OSC, two-character) are deliberately NOT handled: no ESC byte at all
 // appears anywhere in the archived captures, so anything past CSI would be speculative.
 const ANSI_ESCAPE = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g;
-// Everything C0 except tab and \n; \n and \r are consumed by the line split in postRebootLines,
-// so neither reaches here and only tab is a deliberate survivor.
+// Everything C0 except tab and \n; \n and \r are consumed by the line split in
+// postRebootCaptureLines, so neither reaches here and only tab is a deliberate survivor.
 const CONTROL_BYTES = /[\x00-\x08\x0b-\x1f\x7f]/g;
 
 /** One capture line as the terminal rendered it: CSI sequences gone, backspaces applied.
@@ -58,7 +59,8 @@ const CONTROL_BYTES = /[\x00-\x08\x0b-\x1f\x7f]/g;
  * gone" would overstate what this does.
  *
  * One place this is deliberately NOT terminal rendering: a bare \r arrives here already split into
- * a separate line (see postRebootLines), because on a serial link \r alone is a line terminator.
+ * a separate line (see postRebootCaptureLines), because on a serial link \r alone is a line
+ * terminator.
  * A terminal would instead return the cursor and let the next text OVERWRITE this line, so text a
  * terminal never showed can survive as its own line. The cost is real but bounded -- an in-place
  * progress line would surface both its states, and if the overwritten half named the build, that
@@ -114,23 +116,13 @@ function namesBuild(line: string, name: string): boolean {
 }
 
 /**
- * Every capture line after the soft reboot, with mpremote's own chatter dropped.
- *
- * Reads BOTH captures, not just the serial one. The final reset is by contract the LAST device
- * operation, so a deploy that runs one capture puts its only proof in final_reset_excerpt and
- * leaves serial_excerpt empty -- and two runs were reported "firmware ran: NOT OBSERVED" while
- * their final reset held "MPY: soft reboot" and the boot line.
+ * One capture's lines after its OWN reboot/interrupt boundary.
  */
-export function postRebootLines(report: any): string[] {
-  const captured = [report?.serial_excerpt, report?.final_reset_excerpt,
-                    report?.final_reset?.output_excerpt, report?.final_reset?.output]
-    .map((v: unknown) => (typeof v === "string" ? v : ""))
-    .filter(Boolean)
-    .join("\n");
+function postRebootCaptureLines(capture: string): string[] {
   // A bare \r ends a line too. Stripping it instead would splice two rendered lines into one and
   // push a "Traceback (most recent call last):" off the start of its line, re-creating against the
   // traceback anchor exactly the blind spot renderTerminalLine exists to close.
-  const lines = captured.split(/\r\n|[\r\n]/).map(renderTerminalLine).filter(Boolean);
+  const lines = capture.split(/\r\n|[\r\n]/).map(renderTerminalLine).filter(Boolean);
   // No reboot line means no slice point, so the whole capture is treated as firmware output.
   const rebootAt = lines.findIndex((l: string) => l.includes("soft reboot"));
   // Not every board prints "MPY: soft reboot" -- capture_repl.py's own observed_fresh_boot()
@@ -139,9 +131,35 @@ export function postRebootLines(report: any): string[] {
   // interrupt's own exception line is the fallback slice point. Whichever marker sits LATER is
   // where firmware output really starts, so a genuine crash after the reboot is still kept.
   const interruptAt = lines.findIndex((l: string) => INTERRUPT_EXCEPTION.test(l));
-  return lines
-    .slice(Math.max(rebootAt, interruptAt) + 1)
-    .filter((l: string) => !MPREMOTE_BANNER.test(l) && !SCAFFOLD_BOOT_MARKER.test(l));
+  return lines.slice(Math.max(rebootAt, interruptAt) + 1);
+}
+
+/**
+ * Every capture line after the soft reboot, with mpremote's own chatter dropped.
+ *
+ * Reads BOTH captures, not just the serial one. The final reset is by contract the LAST device
+ * operation, so a deploy that runs one capture puts its only proof in final_reset_excerpt and
+ * leaves serial_excerpt empty -- and two runs were reported "firmware ran: NOT OBSERVED" while
+ * their final reset held "MPY: soft reboot" and the boot line.
+ *
+ * Sliced PER CAPTURE, not on the joined text: each capture's reboot/interrupt marker only bounds
+ * ITS OWN capture. Joining first and finding one boundary for both loses the capture boundary --
+ * a marker in the first capture forgave nothing in the second's own traceback (false `crashed`),
+ * and a marker in the second capture swallowed real output that came before it in the first
+ * (false `absent`).
+ */
+export function postRebootLines(report: any): string[] {
+  return postRebootCaptures(report).flat();
+}
+
+function postRebootCaptures(report: any): string[][] {
+  const captures = [report?.serial_excerpt, report?.final_reset_excerpt,
+                    report?.final_reset?.output_excerpt, report?.final_reset?.output]
+    .map((v: unknown) => (typeof v === "string" ? v : ""))
+    .filter(Boolean);
+  return captures
+    .map(postRebootCaptureLines)
+    .map((lines) => lines.filter((l) => !MPREMOTE_BANNER.test(l) && !SCAFFOLD_BOOT_MARKER.test(l)));
 }
 
 const raisedLine = (lines: string[]): string | undefined =>
@@ -165,6 +183,16 @@ export function classifyFirmwareEvidence(lines: string[], builtName: string | nu
   // With no name to compare against, output from an unknown build is not evidence of anything.
   if (!builtName) return { kind: "absent" };
   return { kind: "foreign", line: excerpt(lines[0]) };
+}
+
+/** Classify each capture independently, with the latest non-empty verdict winning. */
+export function classifyFirmwareReport(report: any, builtName: string | null): FirmwareEvidence {
+  const captures = postRebootCaptures(report);
+  for (let index = captures.length - 1; index >= 0; index -= 1) {
+    const evidence = classifyFirmwareEvidence(captures[index], builtName);
+    if (evidence.kind !== "absent") return evidence;
+  }
+  return { kind: "absent" };
 }
 
 /** The "firmware ran during deploy:" line. */

@@ -18,23 +18,37 @@ $script:fails = 0
 function pass($m) { Write-Host "PASS: $m" }
 function fail($m) { Write-Host "FAIL: $m"; $script:fails++ }
 
+# Every external invocation in this script goes through here, and it exists for
+# one reason: `&` on a path that EXISTS but is not a runnable PE raises
+# ApplicationFailedException, which is STATEMENT-TERMINATING. PowerShell then
+# abandons the whole if/else around the call, so neither pass nor fail runs,
+# $script:fails is never incremented, and this script prints ALL PASS and exits 0
+# having silently dropped an assertion. A present-but-unrunnable
+# env\Scripts\python.exe is exactly what a half-finished or corrupted install
+# looks like, so the check most likely to matter is the one that vanished.
+# Returning $null instead makes every such check fail closed.
+function invoke_tool([string]$exe, [string[]]$toolArgs) {
+  try { return (& $exe @toolArgs 2>$null) } catch { return $null }
+}
+
 $CODE = Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code\bin\code.cmd"
 
 # 1. VS Code CLI runnable
-if ((Test-Path $CODE) -and (& $CODE --version 2>$null)) {
-  pass "VS Code CLI ($((& $CODE --version | Select-Object -First 1)))"
+$codeVersion = if (Test-Path $CODE) { invoke_tool $CODE @("--version") } else { $null }
+if ($codeVersion) {
+  pass "VS Code CLI ($(@($codeVersion)[0]))"
 } else { fail "VS Code CLI not runnable"; $CODE = "" }
 
 # 2. all three extensions in the branded profile
 if ($CODE) {
-  $list = & $CODE --profile $PROFILE_NAME --list-extensions 2>$null
+  $list = invoke_tool $CODE @("--profile", $PROFILE_NAME, "--list-extensions")
   if (($list -contains $EXT_ID) -and ($list -contains $PY_EXT_ID) -and ($list -contains $PYLANCE_ID)) {
     pass "extensions in profile '$PROFILE_NAME' (blockless + python + pylance)"
   } else { fail "extensions missing in profile '$PROFILE_NAME' (need blockless + python + pylance)" }
 } else { fail "extension check skipped (no code CLI)" }
 
 # 3. python env has the pinned mpremote
-if ((Test-Path $ENVPY) -and ((& $ENVPY -m mpremote version 2>$null) -match $MPREMOTE_VERSION)) {
+if ((Test-Path $ENVPY) -and ((invoke_tool $ENVPY @("-m", "mpremote", "version")) -match $MPREMOTE_VERSION)) {
   pass "mpremote $MPREMOTE_VERSION in env"
 } else { fail "mpremote $MPREMOTE_VERSION not found (envPython='$ENVPY')" }
 
