@@ -1,6 +1,6 @@
 ---
 name: publish-extension
-description: 发布 Blockless VS Code 扩展到 Visual Studio Marketplace（含发布前测试）/ ship the Blockless extension to the VS Code Marketplace. 先跑预检（线上后端探活 + api-base-url 指向线上 + 子模块完整 + typecheck + npm test + 打包 VSIX），再二选一发布：GitHub Actions 打 v* tag 自动发（仓库 secret VSCE_PAT），或本地 vsce login blockless + npm run publish。publisher=blockless，Marketplace ID=blockless.mpy-hardware-extension。**默认只预检、不发布**；真正发布要用户在本次调用里显式确认。参数 check(默认)/local/tag。
+description: 发布 Blockless VS Code 扩展的**预检 + MS Marketplace 那一半** / preflight and the MS Marketplace half of shipping the Blockless extension. 先跑预检（线上后端探活 + api-base-url 指向线上 + 子模块完整 + typecheck + npm test + 打包 VSIX），再二选一发 MS：GitHub Actions 打 v* tag 自动发（仓库 secret VSCE_PAT），或本地 vsce login blockless + npm run publish。publisher=blockless，Marketplace ID=blockless.mpy-hardware-extension。**默认只预检、不发布**；真正发布要用户在本次调用里显式确认。参数 check(默认)/local/tag。⚠️ 发完 MS **还不算发完**：同一个 vsix 必须同步 Open VSX，全渠道流程见根工作区的 blockless-extension-publish。
 argument-hint: "[check|local|tag]"
 ---
 
@@ -52,18 +52,22 @@ npm --prefix mpy-hardware-extension test
 npm --prefix mpy-hardware-extension run package
 ```
 - `npm test` 预期 **0 fail**；本机会有 **1 个 skip**（跨进程 e2e 烟雾测试需要本地 Postgres+Python，没起就跳过，CI 里才真跑）——这是正常的，不是失败。test 有时会偶发挂 deploy 相关几条（已知 flaky），重跑一次回绿即可。
-- `package` 成功的标志是打出 `build/mpy-hardware-extension-<version>.vsix`，日志里能看到 vendor 了一批 `third_party/MicroPython_Skills` 文件 + `dist/extension/activate.cjs`。
+- `package` 成功的标志是打出 `build/mpy-hardware-extension.vsix`（**不带版本号**——旧文档写的 `-<version>.vsix` 已过时），日志里能看到 vendor 了一批 `third_party/MicroPython_Skills` 文件 + `dist/extension/activate.cjs`。
+- 子模块要对齐 main 记录值：多 session 共用 checkout 时 `git submodule status` 出现 `+` 就先 `git submodule update --checkout`，否则本地包和 CI 包内容不一致。
 
 ## Phase 2 — 人肉内测（首版上公网前强烈建议）
 
 程序绿不等于扩展好用。装刚打的 VSIX 点一遍（这步只能人做）：
 ```powershell
-$v=(Get-Content mpy-hardware-extension/package.json -Raw | ConvertFrom-Json).version
-code --install-extension "mpy-hardware-extension/build/mpy-hardware-extension-$v.vsix"
+code --install-extension "mpy-hardware-extension/build/mpy-hardware-extension.vsix"
 ```
 检查：Activity Bar 有 Blockless 图标、面板能开、boards 加载、GitHub 登录弹出、登录后 credits 显示、能跑生成、连板子时 shim 不缺文件。
 
-## Phase 3 — 发布（`local` / `tag`，需用户确认）
+## Phase 3 — 发布 MS（`local` / `tag`，需用户确认）
+
+> 🔴 **发完 MS 不等于发完。** 一次发布 = 同一个 vsix 进 **两个** registry。微软的条款只允许官方 VS Code 用它的扩展源，所以 Cursor / Windsurf / VSCodium 的用户全部走 **Open VSX**——漏发 Open VSX，这批人直接搜不到插件，而且两个 registry 一旦版本错开就再也对不齐。
+>
+> 本 skill 只覆盖 MS 这一半。**全渠道流程（Open VSX 的 `ovsx publish`、OVSX_PAT 的 BOM 坑、两边"别信绿灯"的验证端点）在根工作区的 `blockless-extension-publish` skill 里**——从 `Desktop/anvol/` 开会话才加载得到它。只从本仓库目录开会话时看不见那份，做完 Phase 4 请回根目录补完 Open VSX。
 
 先看版本号。Marketplace **不允许重复版本**：
 ```powershell
