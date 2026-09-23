@@ -171,6 +171,11 @@ impl UninstallRunner for FakeEnvironment {
     fn run_vscode_uninstaller(&self, _vscode_dir: &Path) -> Result<bool, String> {
         Ok(false)
     }
+    /// See `tests/uninstall.rs`: fixture removals are synchronous, so the
+    /// suite must never pay the production settle timeout.
+    fn removal_settle_timeout(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
 }
 
 fn test_manifest() -> Manifest {

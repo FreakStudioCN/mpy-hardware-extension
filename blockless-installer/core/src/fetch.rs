@@ -103,6 +103,13 @@ pub enum FetchError {
 /// `read_timeout` bounds the gap between body reads within a single
 /// attempt (see [`READ_TIMEOUT`]); it is unrelated to `max_attempts` and
 /// `backoff_base`, which govern retrying a failed attempt.
+///
+/// TWO MEANINGS, deliberately, and worth knowing before you tune it:
+/// [`fetch_and_verify`] uses it as an IDLE bound (the gap between chunks of a
+/// large streaming body), while [`get_text_with_retry`] uses it as a TOTAL
+/// per-request deadline for one small JSON document. Lowering it to tighten
+/// stall detection on downloads therefore also caps the update-API request
+/// outright. Split this field before that difference matters.
 #[derive(Debug, Clone)]
 pub struct FetchOptions {
     pub max_attempts: u32,
@@ -170,6 +177,154 @@ pub fn fetch_and_verify(
         source,
     })?;
     Ok(())
+}
+
+/// Download `url` to `dest` with retry but WITHOUT a sha256 check, returning
+/// the sha256 of whatever arrived so the caller can log it.
+///
+/// **Use this for exactly one thing: Microsoft's Evergreen WebView2
+/// bootstrapper.** Everything the manifest pins goes through
+/// [`fetch_and_verify`] and must keep doing so.
+///
+/// Why no hash: `go.microsoft.com/fwlink/p/?LinkId=2124703` is a redirector
+/// that always serves the current bootstrapper, so there is no stable digest
+/// to pin, and inventing one would mean writing a hash we cannot fetch
+/// authoritatively -- precisely what the rig documentation forbids. Integrity
+/// is instead established by the artifact's AUTHENTICODE SIGNATURE, checked
+/// before it is executed, by the same `verify_signature` gate the VS Code
+/// installer already passes through (Microsoft subject pin included). That is
+/// a stronger claim than a hash pinned in our own repo: it chains to
+/// Microsoft rather than to us.
+///
+/// The returned digest is for the log only. It is NOT a gate, and a caller
+/// that treats it as one has misunderstood this function.
+pub fn download_unverified(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    dest: &Path,
+    opts: &FetchOptions,
+) -> Result<String, FetchError> {
+    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|source| FetchError::Io {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    fetch_with_retry(client, url, dest, opts)
+}
+
+/// GET `url` and return the body as text, retried under the SAME policy as
+/// [`fetch_and_verify`]'s downloads (`FetchOptions::max_attempts`, exponential
+/// backoff from `backoff_base`).
+///
+/// Exists because the VS Code update-API request was a single unretried
+/// `client.get(url).send()` in `vscode.rs`, while the download it gates got
+/// the full retry treatment. Found on the Windows Sandbox rig, 2026-09-21: a
+/// first Install surfaced "could not reach the VS Code update API" as a
+/// failure screen and a manual retry cleared it, with nothing else changed.
+/// The cause was not captured -- a freshly booted sandbox whose NAT/DNS had
+/// not settled is the likeliest explanation, not a confirmed one -- but a
+/// single-shot request on the path that gates the whole install is worth
+/// retrying whatever the cause was. A cold
+/// machine with slow DHCP is exactly the profile a one-click installer runs
+/// on, so the request that gates the whole install must be at least as robust
+/// as the download that follows it.
+///
+/// Each attempt is bounded by `opts.read_timeout` as a TOTAL per-request
+/// deadline, not by the idle watchdog [`retry::fetch_with_retry`] uses. Note
+/// the client's own timeouts do NOT cover this: `download_client` sets
+/// `.timeout(None)` so a 542 MB transfer is never capped, which is why the
+/// bound has to be applied per request here.
+///
+/// A total bound is the stronger choice for this call. The watchdog is
+/// idle-based, so a peer trickling one byte per window defeats it; an absolute
+/// deadline does not care. That trade only works because this reads one small
+/// JSON document -- applying it to a download would cap the transfer, which is
+/// exactly what `download_client` refuses to do.
+///
+/// **A 4xx is not retried**, except 408 Request Timeout and 429 Too Many
+/// Requests. A client error is a fact about the request, not a transient, and
+/// retrying it would just burn the whole backoff budget before reporting the
+/// same thing -- the same reasoning that makes a sha256 mismatch a hard
+/// failure rather than a retry. 408 and 429 are the two 4xx codes that are
+/// transient by definition: a classroom installing at once is exactly who gets
+/// rate-limited.
+pub fn get_text_with_retry(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    opts: &FetchOptions,
+) -> Result<String, reqwest::Error> {
+    let attempts = opts.max_attempts.max(1);
+    let mut last: Option<reqwest::Error> = None;
+    for attempt in 0..attempts {
+        match client
+            .get(url)
+            // BOUND THE ATTEMPT. `download_client` sets `.timeout(None)` on
+            // purpose -- a 542 MB transfer must not be capped -- so without a
+            // per-request timeout here an attempt can never end, and a retry
+            // that can never fire is not a retry. `tcp_keepalive` does not
+            // help: it detects a peer that stops ACKing, not one that ACKs and
+            // sends nothing (see this module's docs). A server that accepts
+            // the connection and then stalls mid-headers would block the
+            // installer's worker thread forever, with the GUI showing a step
+            // that never completes.
+            //
+            // `RequestBuilder::timeout` overrides the client's for this
+            // request only, so the download path is untouched. A total bound
+            // is right here where `fetch_with_retry` uses an idle watchdog,
+            // because this reads one small JSON document rather than
+            // streaming hundreds of megabytes.
+            .timeout(opts.read_timeout)
+            .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.text())
+        {
+            Ok(body) => return Ok(body),
+            Err(e) => {
+                let client_error = e.status().is_some_and(|s| {
+                    s.is_client_error()
+                        && s != reqwest::StatusCode::REQUEST_TIMEOUT
+                        && s != reqwest::StatusCode::TOO_MANY_REQUESTS
+                });
+                // Logged per failed attempt, so a retry that SUCCEEDS still
+                // leaves evidence it happened: without this line a transient
+                // the retry absorbed is indistinguishable from one that never
+                // occurred, and an induced-fault rig run would prove nothing
+                // readable.
+                //
+                // WHERE IT LANDS. This line is emitted only by
+                // `get_text_with_retry`, so in practice it covers the VS Code
+                // update API. The download path (`fetch_with_retry`, in
+                // `retry.rs`) emits no tracing at all, so the WebView2
+                // bootstrapper fetch never reaches here regardless of where
+                // logs are writable -- that path reports through its own
+                // dialog.
+                //
+                // It reaches `logs/installer.log`, and hence the diagnostics
+                // bundle, whenever `BLK/logs` exists. The GUI's writer
+                // (`app/src/logging.rs`) never creates it -- only `run_install`
+                // does, deliberately, because recreating it at startup would
+                // put `BLK` back on a machine a prior uninstall had cleaned --
+                // so on a fresh or freshly-cleaned machine, lines emitted
+                // before the first install are dropped.
+                tracing::warn!(
+                    url,
+                    attempt = attempt + 1,
+                    of = attempts,
+                    will_retry = !client_error && attempt + 1 < attempts,
+                    error = %e,
+                    "GET failed"
+                );
+                last = Some(e);
+                if client_error {
+                    break;
+                }
+                if attempt + 1 < attempts {
+                    std::thread::sleep(opts.backoff_for(attempt));
+                }
+            }
+        }
+    }
+    Err(last.expect("the loop body runs at least once and only exits via Ok or Some(e)"))
 }
 
 #[cfg(not(windows))]

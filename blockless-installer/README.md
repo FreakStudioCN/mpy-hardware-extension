@@ -79,9 +79,15 @@ exact VSIX beside it, and a real hash committed here would be wrong as soon as t
 is rebuilt. A bundle that can install needs a stamp-and-inject packaging step, which
 does not exist yet. Until it does, install from a release binary and its sidecar files.
 
-Producing an installable bundle (`.app`/`.dmg` on macOS, the NSIS installer
-on Windows) needs `tauri-cli`, which is local/rig-only -- never installed or invoked
-in CI:
+**The bundle provisions WebView2, but the app does not depend on it.** Tauri's NSIS
+template decides whether to provision by reading an EdgeUpdate registry key that
+Microsoft Edge also registers, so on a machine carrying that registration without the
+runtime it provisions nothing. The app therefore checks and provisions the runtime
+itself (`core/src/webview2.rs`), using Microsoft's detection API rather than the
+registry. See ARCHITECTURE.md section 10.
+
+Producing an installable bundle (`.app`/`.dmg` on macOS, the NSIS installer on Windows)
+needs `tauri-cli`, which is local/rig-only -- never installed or invoked in CI:
 
 ```
 cargo install tauri-cli --version "^2"   # once, locally

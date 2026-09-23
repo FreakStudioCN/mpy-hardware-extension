@@ -63,6 +63,11 @@ pub fn write_diagnostics_bundle(
     let mut facts = serde_json::json!({
         "os": match os { Os::MacOs => "macos", Os::Windows => "windows" },
         "arch": match arch { Arch::X64 => "x64", Arch::Arm64 => "arm64" },
+        // WHICH BUILD, not just which version. `installerVersion` below comes
+        // from the manifest and moves only when someone edits it; six distinct
+        // `0.1.0` binaries were built during one acceptance run and nothing
+        // told them apart. See `core/build.rs`.
+        "gitSha": env!("BLOCKLESS_GIT_SHA"),
     });
     match manifest {
         Ok(manifest) => {

@@ -482,15 +482,76 @@ fn summary_marks_every_outcome_the_user_must_act_on_as_not_ok() {
 
     let s = finished(false, true, false).summary(hint);
     assert!(!s.ok);
-    assert!(s.message.contains("profile_removed=true"));
-    assert!(s.message.contains("BLK was left in place"));
+    // Assert the SHAPE, not a literal: it must still say what happened and
+    // what to do, and must not leak internal identifiers into text a user
+    // reads. Pinning the exact sentence is what let
+    // "profile_removed=true; BLK was left in place" survive into the GUI.
+    assert!(
+        s.message.contains("Uninstall again"),
+        "a recoverable failure must tell the user how to finish: {}",
+        s.message
+    );
+    assert!(
+        s.message.contains("profile was removed"),
+        "must still report the profile outcome: {}",
+        s.message
+    );
+    assert!(
+        !s.message.contains("BLK"),
+        "internal shell variable name leaked into user-facing text: {}",
+        s.message
+    );
+    assert!(
+        !s.message.contains("profile_removed="),
+        "raw struct field name leaked into user-facing text: {}",
+        s.message
+    );
 
     let s = finished(false, false, false).summary(hint);
     assert!(s.ok);
     assert_eq!(
         s.message,
-        "done: profile_removed=true blk_removed=true blk_removal_partial=false \
-         vscode_removed=false"
+        "Uninstalled. Removed the Blockless editor profile and the Blockless folder."
+    );
+    // The success path is user-facing too, and is the one EVERY clean
+    // uninstall shows. It used to read
+    // "done: profile_removed=true blk_removed=true blk_removal_partial=false
+    // vscode_removed=false".
+    assert!(
+        !s.message.contains("profile_removed=") && !s.message.contains("blk_removed="),
+        "raw struct field names leaked into user-facing text: {}",
+        s.message
+    );
+}
+
+/// Two sentences of one message must not contradict each other: a partial
+/// removal is neither "Uninstalled." nor "nothing left to remove", and a VS
+/// Code failure after the profile went is not "nothing else was deleted".
+#[test]
+fn summary_never_contradicts_itself() {
+    let partial = UninstallOutcome::Finished {
+        profile_removed: false,
+        blk_removed: false,
+        blk_removal_partial: true,
+        vscode_removed: false,
+        invariant_guard_tripped: false,
+        vscode_kept_but_owned: false,
+        vscode_removal_failed: false,
+    }
+    .summary("HINT");
+    assert!(
+        !partial.message.contains("nothing left to remove")
+            && !partial.message.starts_with("Uninstalled."),
+        "{}",
+        partial.message
+    );
+    assert!(partial.message.contains("could not be deleted"));
+
+    let failed = finished(false, true, false).summary("HINT");
+    assert!(
+        !failed.message.contains("nothing else was deleted"),
+        "the profile WAS deleted in this outcome: {}",
+        failed.message
     );
 }
 
@@ -504,7 +565,7 @@ fn summary_ownership_note_takes_the_shells_own_removal_hint() {
         .message
         .split_once('\n')
         .expect("the note is its own line after the summary");
-    assert!(first.starts_with("done: "));
+    assert!(first.starts_with("Uninstalled. "));
     assert_eq!(
         note,
         "note: VS Code was installed by this installer and is being left in place; it is no \

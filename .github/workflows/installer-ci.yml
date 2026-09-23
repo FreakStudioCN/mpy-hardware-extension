@@ -140,10 +140,35 @@ jobs:
       - name: app crate -- cargo test
         run: cargo test --manifest-path app/Cargo.toml
 
+      # Compile-only for Intel Macs, core + cli ONLY -- `app/` is excluded from
+      # this workspace and is not covered here.
+      #
+      # That is a gap, not a proven impossibility. The reason `app/` is skipped
+      # on the WINDOWS job was measured there (cross-compiling it for
+      # aarch64-pc-windows-msvc fails, "failed to find tool clang"); nothing
+      # equivalent has been measured on macOS, where Apple clang targets
+      # x86_64 natively. Adding
+      # `cargo check --manifest-path app/Cargo.toml --target x86_64-apple-darwin`
+      # here is very likely to work and would close the GUI half of the gap.
+      # Untried, so not enabled blind.
+      #
+      # This does NOT address the real question, which is a packaging decision
+      # nobody has recorded: `cargo tauri build` on an Apple Silicon machine
+      # without --target universal-apple-darwin produces an arm64-only .app
+      # that will not launch on an Intel Mac at all. This step just stops the
+      # x86_64 target silently rotting in the meantime.
+      - name: intel mac target still compiles (core + cli only)
+        run: |
+          rustup target add x86_64-apple-darwin
+          cargo check --workspace --target x86_64-apple-darwin
+
   windows:
     name: installer core + gui (windows)
     runs-on: windows-latest
-    timeout-minutes: 15
+    # Raised from 15: this job now also does a full Tauri RELEASE build (the
+    # only profile in which windows_subsystem and the CRT scan mean anything)
+    # plus an arm64 cross-check. 15 was sized before either existed.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: blockless-installer
@@ -179,3 +204,32 @@ jobs:
         run: cargo clippy --manifest-path app/Cargo.toml --all-targets -- -D warnings
       - name: app crate -- cargo test
         run: cargo test --manifest-path app/Cargo.toml
+      # The debug profile cannot see two properties of the binary that ships.
+      # `windows_subsystem` is scoped to `not(debug_assertions)`, so a debug
+      # build is legitimately a console binary and
+      # app/tests/windows_subsystem.rs asserts nothing there; and the CRT
+      # image scan in windows_crt_static.rs runs against the debug exe, not
+      # the shipped one. Both defects those tests guard against were found by
+      # a human looking at a Sandbox screenshot rather than by CI -- without
+      # this step, that stays true.
+      - name: app crate -- cargo test (release, the profile that ships)
+        run: cargo test --release --manifest-path app/Cargo.toml
+      # Compile-only, no arm64 runner needed: catches a cfg or import mistake
+      # that breaks the ARM64 Windows target without waiting for someone to
+      # have the hardware.
+      #
+      # SCOPE: core + cli, and app/ (checked by manifest path, since it is
+      # excluded from this workspace -- see ../Cargo.toml). All three need the
+      # same C toolchain for this target: core pulls in `ring` through
+      # reqwest's rustls, and ring's build needs clang just as app/'s does. A
+      # developer machine without the arm64 MSVC tools fails on core too
+      # (2026-09-22); `windows-latest` has them, so nothing here needs
+      # excluding.
+      #
+      # And this proves compilation, nothing more. scripts/NOTES.md holds what
+      # the arch coverage table actually claims.
+      - name: arm64 windows target still compiles (core + cli + app)
+        run: |
+          rustup target add aarch64-pc-windows-msvc
+          cargo check --workspace --target aarch64-pc-windows-msvc
+          cargo check --manifest-path app/Cargo.toml --target aarch64-pc-windows-msvc

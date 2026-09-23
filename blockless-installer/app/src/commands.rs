@@ -127,6 +127,29 @@ async fn run_op(
     .unwrap_or_else(|e| OpResult::failed_before_op(op, format!("{op} worker crashed: {e}")))
 }
 
+/// The extension version this installer will install, for the ready screen.
+///
+/// The installer carries its OWN version (`0.1.0` at time of writing) and the
+/// extension moves on its own cadence (`0.4.3`), deliberately: the installer
+/// is fixed and released without the extension changing, and vice versa, and
+/// coupling them would force an installer rebuild -- plus a re-stamp, since
+/// the VSIX is not reproducible -- for every extension patch. See
+/// `manifest.installerVersion` vs `manifest.components.extension.version`.
+///
+/// That leaves a fair question from a user: which number am I getting? This
+/// answers it by showing the one they actually care about, rather than making
+/// the two artifacts share a version they do not share a lifecycle with.
+///
+/// `Err` carries the reason to the window, which logs it and omits the text.
+/// A missing sidecar is already reported loudly by the first Install click,
+/// naming every path searched; repeating it as a startup error would be noise,
+/// and must never be mistaken for the machine being unusable.
+#[tauri::command]
+pub(crate) async fn extension_version(app: tauri::AppHandle) -> Result<String, String> {
+    let resource_dir = bundle_resource_dir(&app);
+    load_manifest_and_vsix(resource_dir).map(|(manifest, _)| manifest.components.extension.version)
+}
+
 #[tauri::command]
 pub(crate) async fn run_install(
     app: tauri::AppHandle,

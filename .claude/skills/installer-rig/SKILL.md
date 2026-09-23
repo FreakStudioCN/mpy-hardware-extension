@@ -158,15 +158,38 @@ read from alongside the binary unless `--manifest` says otherwise; pass `--vsix`
 because `components/` is not populated.
 
 **The GUI has the same sidecar contract and no escape hatch.** It has no `--manifest` or `--vsix`
-override, so the files must be co-located or nothing installs. The failure is visible rather than
-silent: you reach the failure screen on the first Install click, naming every path it looked at.
+override, so the files must be co-located or nothing installs. It searches exe-adjacent first, then
+its bundle's resource directory, so a manifest you stamped and placed yourself always beats a
+bundled copy.
 
-It searches exe-adjacent first, then its bundle's resource directory, so a manifest you stamped and
-placed yourself always beats a bundled copy. A bundle does carry the manifest, declared under
-`bundle.resources`, but it carries the COMMITTED one, whose hashes are zeros. So a bundle built
-with no stamping step fails the hash check and installs nothing, on purpose. **Run the GUI half of
-the rig from a release binary plus its two sidecar files, not from a bundle**, until a
-stamp-and-inject packaging step exists.
+**The Windows GUI ships as an NSIS bundle**, installed per-user. A portable exe was tried and
+reverted: nothing on the machine then points at the uninstaller, so a user who deletes the
+downloaded exe has no route to uninstall. An installed installer is discoverable; a portable one is
+not.
+
+**The bundle cannot be trusted to provision WebView2, and the app no longer relies on it.** The
+NSIS probe reads an EdgeUpdate registry key that Edge also registers, so on a machine carrying that
+registration without the runtime it provisions nothing. The app detects via Microsoft's API and
+provisions the runtime itself if needed, with a consent prompt. Expect that prompt on a stock
+Sandbox image.
+
+**LEAVE THE PHANTOM EdgeUpdate KEY IN PLACE.** Older rig scripts deleted
+`HKLM\...\EdgeUpdate\Clients\{F3017226-...}` as a "workaround". That is backwards now: a registry
+entry claiming a WebView2 runtime that is not on disk is precisely the condition the product must
+survive, and deleting it hides the only interesting case. The app detects via Microsoft's API and
+provisions the runtime itself, with a consent prompt.
+
+**`start foo.wsb` does nothing on a host with no `.wsb` association.** It opens a bare `cmd` window
+and the Sandbox never launches. Use `WindowsSandbox.exe "<path>.wsb"`.
+
+**`Start-Transcript` is the wrong logger under PowerShell 5.1** (what Sandbox ships): it buffers,
+and it does not capture child-process output at all, so a rig script appears to stall mid-step when
+it has not. Use `Add-Content` per line, and pipe child processes through `| Out-String`.
+
+**A UIA wildcard selector will match the wrong thing.** `"*Install*"` matches the TitleBar
+"Blockless Installer" and the "Uninstall" button as well as "Install". A run once sat in a
+30-minute poll loop having clicked the window title bar. Match exactly, filter on control type, and
+verify the click changed something before waiting on it.
 
 ### The sequence
 
@@ -196,14 +219,29 @@ On camera. Tests reinforce this; they do not substitute for it.
    | `--all` | removed regardless |
    | `--keep-vscode` | never removed |
 
-4. **The `#[ignore]`d live update-API test**, run explicitly, capturing the real response to
-   replace the hand-authored `.SHAPE.` fixture.
+4. **The `#[ignore]`d live update-API test**, run explicitly, to confirm the captured fixture
+   still matches what the API returns. The fixture is a real capture as of 2026-09-09, no longer
+   hand-authored.
 
 ### Recording arch coverage
 
-A successful cold install proves the uv sha pin only for the arch it ran on. There are four:
-darwin-aarch64, darwin-x86_64, win32-x64, win32-arm64. mac aarch64 plus win x64 is **two of
-four**. Write two of four, not "the pins are proven".
+Two different claims, and conflating them overstates one and understates the other. See
+`blockless-installer/scripts/NOTES.md` for the maintained table.
+
+1. **The pinned uv sha is correct: 4 of 4.** Every asset was downloaded and hashed on 2026-09-09,
+   and anyone can repeat that from any machine. A rig run does NOT prove this, and never did.
+2. **The whole platform path works: 2 of 4** (darwin-aarch64, win32-x64). What an arch run actually
+   proves is `Arch::detect`'s mapping, that VS Code's build for that arch installs and passes the
+   signature check, and that uv runs there at all. darwin-x86_64 and win32-arm64 are unproven.
+
+Write which of the two you mean. CI now `cargo check`s both unproven targets, which proves they
+COMPILE and nothing more.
+
+Two product questions gate any further hardware time, and neither is recorded anywhere: is an
+ARM64 Windows binary shipped at all (an x64 exe runs emulated and reports `AMD64`, so the arm64
+branch is unreachable in it), and is the macOS build universal? A `cargo tauri build` on Apple
+Silicon without `--target universal-apple-darwin` produces an arm64-only `.app` that will not
+launch on an Intel Mac at all.
 
 ## Prerequisites
 
@@ -261,8 +299,12 @@ Nothing here needs Node, and nothing here needs the submodule.
 
 ## Do not
 
-- Do not revisit the uninstall invariants, `storage.json` writers, carry-forward, verify parity
-  or signature gating. A rigorous review confirmed them faithful.
+- The uninstall INVARIANT GUARD, carry-forward, verify parity and signature gating were
+  confirmed faithful by a rigorous review, and still are. The code AROUND the guard was not:
+  the Windows rig of 2026-09-22 found two defects in it -- the removal check was fooled by
+  delete-pending and reported a false failure on every first uninstall, and `storage.json`
+  cleanup missed `profileAssociations` entirely. Both are fixed. Treat "reviewed" as
+  covering the invariants, not the whole file.
 - Do not write a sha256 from memory or reconstruct one. Fetch it, or report that you could not.
   A zero fails closed; a plausible-looking digest gets trusted.
 - Do not run `install`, `repair`, `repair-runtime`, `update-extension` or `uninstall` outside a

@@ -196,14 +196,44 @@ contained runtime is under the user's Application Support. Windows uses VS Code 
 elevation, it fails with guidance rather than prompting for admin.
 
 **WebView2 (GUI installer, Windows).** A fresh machine must be assumed to have no WebView2 runtime
-at all (fact-checked against Microsoft's distribution doc and the Tauri source, 2026-09-11). The
-NSIS installer ships in per-user mode (`installMode: "currentUser"`); its `webviewInstallMode` is
-`{ "type": "downloadBootstrapper", "silent": true }`, never left to Tauri's default -- Microsoft's
-Evergreen bootstrapper installs per-user when it is itself run non-elevated, so "no admin, ever"
-holds through the WebView2 install too, with no separate prompt. If the bootstrapper is ever
-observed to elevate on a real machine, the documented fallback is a fixed-runtime webview
-(`webviewInstallMode: { "type": "fixedRuntime", "path": ... }`, ~180 MB shipped app-local, zero
-install) -- not yet adopted, since the download-bootstrapper path is unproven on hardware.
+at all. The GUI ships as an NSIS bundle in per-user mode (`installMode: "currentUser"`), with
+`webviewInstallMode: { "type": "downloadBootstrapper", "silent": true }`. Microsoft's Evergreen
+bootstrapper is documented to install per-user when run non-elevated. See the caveat at the end of
+this section: that has not been demonstrated here.
+
+**The bundle alone is not sufficient, and the app does not rely on it.** Tauri's NSIS template
+decides whether to provision by reading
+`HKLM\...\EdgeUpdate\Clients\{F3017226-...}\pv`. Microsoft Edge registers that same client GUID,
+so on a machine carrying the registration WITHOUT the runtime installed -- a stock Windows Sandbox
+image, and anything like it -- the bundle provisions nothing and the app would open a bare window
+titled `Error`. Found on the rig, 2026-09-21. Of the five `webviewInstallMode` values, three -- `downloadBootstrapper`, `embedBootstrapper` and
+`offlineInstaller` -- sit inside that same `${If}` and are skipped together (`Skip` does nothing by
+definition).
+The exception is `fixedRuntime`, which ships a runtime alongside the app and never consults the
+probe; at roughly 180 MB of shipped bundle it remains a real alternative to the app-side check
+below, and is what this document previously recorded as the fallback for exactly this failure.
+
+So the app provisions the runtime itself as well (`core/src/webview2.rs`), and that is the
+authoritative path. Detection is Microsoft's `GetAvailableCoreWebView2BrowserVersionString`, reached
+via `tauri::webview_version()`, never the registry key. When the runtime is missing the app asks for
+consent, downloads the Evergreen bootstrapper and runs it `/silent /install` (per-user, non-elevated),
+then re-checks availability rather than trusting the installer's exit code. (Run non-elevated it is
+documented to install per-user; again, see the caveat below.)
+
+The bootstrapper is fetched WITHOUT a sha256 pin, deliberately: its URL is a redirector that always
+serves the current build, so no stable digest exists to pin. Integrity comes from its Authenticode
+signature, verified before execution through the same Microsoft-pinned `verify_signature` gate the
+VS Code installer passes. A bad signature deletes the file and never runs it.
+
+In the common case the bundle provisions the runtime at install time and the app's check is a no-op.
+On a machine with a phantom registration the bundle skips it and the app recovers.
+
+Neither path is *expected* to need an administrator: Microsoft's bootstrapper installs per-user when
+run non-elevated. That has NOT been demonstrated. Every rig run to date executed as Administrator
+(Windows Sandbox does so by default and it cannot be changed), and the resulting registration landed
+under HKLM, i.e. per-machine. Microsoft also documents that a per-user install is replaced by a
+per-machine one where a per-machine Edge Updater is present. The no-admin claim needs a
+non-elevated run on a real machine before it is stated as fact.
 
 ---
 

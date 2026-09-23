@@ -22,6 +22,14 @@ struct TestServer {
     addr: SocketAddr,
     stop: Arc<AtomicBool>,
     handle: Option<std::thread::JoinHandle<()>>,
+    /// Connections accepted. Each attempt is its own connection (the server
+    /// sends `Connection: close`), so this counts ATTEMPTS exactly.
+    ///
+    /// Added so a retry test can assert how many attempts happened instead of
+    /// inferring it from which queued response came back. Without it, disabling
+    /// retries entirely killed only one of five tests; with it, "how many times
+    /// did we ask" is asserted directly and cannot be satisfied by luck.
+    hits: Arc<AtomicU64>,
 }
 
 impl TestServer {
@@ -44,12 +52,15 @@ impl TestServer {
         listener.set_nonblocking(true).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&stop);
+        let hits = Arc::new(AtomicU64::new(0));
+        let thread_hits = Arc::clone(&hits);
         let handle = std::thread::spawn(move || {
             for (status, body) in responses {
                 let mut stream = match Self::accept_one(&listener, &thread_stop) {
                     Some(s) => s,
                     None => return,
                 };
+                thread_hits.fetch_add(1, Ordering::SeqCst);
                 // Windows hands back an accepted socket that INHERITED the
                 // listener's non-blocking mode; Unix does not. The listener is
                 // non-blocking only so accept() can poll a deadline, and
@@ -94,7 +105,13 @@ impl TestServer {
             addr,
             stop,
             handle: Some(handle),
+            hits,
         }
+    }
+
+    /// Connections accepted so far == attempts made.
+    fn hits(&self) -> u64 {
+        self.hits.load(Ordering::SeqCst)
     }
 
     fn url(&self) -> String {
@@ -169,6 +186,7 @@ impl TestServer {
             addr,
             stop,
             handle: Some(handle),
+            hits: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -199,6 +217,7 @@ impl TestServer {
             addr,
             stop,
             handle: Some(handle),
+            hits: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -253,6 +272,7 @@ impl TestServer {
             addr,
             stop,
             handle: Some(handle),
+            hits: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -570,4 +590,174 @@ fn backoff_doubles_each_attempt() {
     assert_eq!(opts.backoff_for(0), Duration::from_millis(10));
     assert_eq!(opts.backoff_for(1), Duration::from_millis(20));
     assert_eq!(opts.backoff_for(2), Duration::from_millis(40));
+}
+
+// --- get_text_with_retry ---
+//
+// These exist because the function shipped with NO coverage of its retry
+// behaviour at all. It was added to fix an unretried update-API GET, reviewed,
+// merged and described as "covered by unit tests" -- while the only thing
+// exercising it was a 200 on the happy path via `vscode.rs`. A retry path with
+// no test for retrying is the same shape as the vanishing-check lesson this
+// crate keeps relearning: the gate could not see its own blindness.
+
+#[test]
+fn get_text_retries_a_5xx_then_succeeds() {
+    let server = TestServer::start(vec![
+        (503, vec![]),
+        (503, vec![]),
+        (200, b"{\"ok\":true}".to_vec()),
+    ]);
+    let client = reqwest::blocking::Client::new();
+
+    let body = get_text_with_retry(&client, &server.url(), &fast_opts(3)).unwrap();
+
+    assert_eq!(body, "{\"ok\":true}");
+    assert_eq!(server.hits(), 3, "it must actually have asked three times");
+}
+
+/// A 4xx is a fact about the request, not a transient, so it must be returned
+/// after ONE attempt.
+///
+/// The queue is the assertion: a 404 followed by a 200. Code that wrongly
+/// retried would consume the queued 200 and return `Ok`, so `is_err()` proves
+/// a single attempt without measuring time -- no sleeps, no flakiness, and no
+/// dependence on how fast the machine is.
+#[test]
+fn get_text_does_not_retry_a_4xx() {
+    let server = TestServer::start(vec![(404, vec![]), (200, b"never reached".to_vec())]);
+    let client = reqwest::blocking::Client::new();
+
+    let err = get_text_with_retry(&client, &server.url(), &fast_opts(3)).unwrap_err();
+
+    assert_eq!(
+        err.status().map(|s| s.as_u16()),
+        Some(404),
+        "the 4xx itself must be surfaced, not a later attempt's error"
+    );
+    assert_eq!(
+        server.hits(),
+        1,
+        "a 4xx must cost exactly one attempt, not a whole backoff budget"
+    );
+}
+
+/// 408 and 429 are the transient 4xx codes: a rate-limited classroom must get
+/// the backoff, not a failure screen on the first attempt.
+#[test]
+fn get_text_retries_a_408_and_a_429() {
+    let server = TestServer::start(vec![
+        (429, vec![]),
+        (408, vec![]),
+        (200, b"{\"ok\":true}".to_vec()),
+    ]);
+    let client = reqwest::blocking::Client::new();
+
+    let body = get_text_with_retry(&client, &server.url(), &fast_opts(3)).unwrap();
+
+    assert_eq!(body, "{\"ok\":true}");
+    assert_eq!(server.hits(), 3);
+}
+
+#[test]
+fn get_text_exhausts_its_attempts_and_reports_the_last_error() {
+    let server = TestServer::start(vec![(503, vec![]), (503, vec![]), (503, vec![])]);
+    let client = reqwest::blocking::Client::new();
+
+    let err = get_text_with_retry(&client, &server.url(), &fast_opts(3)).unwrap_err();
+
+    assert_eq!(err.status().map(|s| s.as_u16()), Some(503));
+    assert_eq!(server.hits(), 3, "max_attempts counts the first try too");
+}
+
+/// A single attempt must mean exactly one attempt, not "at least one".
+#[test]
+fn get_text_honours_max_attempts_of_one() {
+    let server = TestServer::start(vec![(503, vec![]), (200, b"never reached".to_vec())]);
+    let client = reqwest::blocking::Client::new();
+
+    let err = get_text_with_retry(&client, &server.url(), &fast_opts(1)).unwrap_err();
+
+    assert_eq!(err.status().map(|s| s.as_u16()), Some(503));
+    assert_eq!(server.hits(), 1, "one attempt means one");
+}
+
+/// A connect failure surfaces as a transport error, not an HTTP status.
+///
+/// NOT a retry test, despite what its first name claimed: nothing is
+/// listening, so there is no server to count attempts and the assertion below
+/// would pass even if connect errors were never retried. Retry behaviour is
+/// covered by the three tests above, which can count. Named for what it
+/// actually checks.
+#[test]
+fn get_text_surfaces_a_connection_failure_as_a_transport_error() {
+    // Bind to claim a port, then drop the listener so the port is free and
+    // connections are refused. Deterministic, and needs no server thread.
+    let addr = {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap()
+    };
+    let client = reqwest::blocking::Client::new();
+
+    let err =
+        get_text_with_retry(&client, &format!("http://{addr}/asset"), &fast_opts(2)).unwrap_err();
+
+    assert!(
+        err.status().is_none(),
+        "a connect failure has no HTTP status: {err}"
+    );
+    assert!(err.is_connect() || err.is_request(), "got {err:?}");
+}
+
+/// A peer that accepts the connection, sends headers, and then goes silent
+/// must fail the attempt rather than blocking forever.
+///
+/// Found by review on PR #97, after the retry was added: `get_text_with_retry`
+/// accepted `FetchOptions` and never applied `read_timeout`, while
+/// `download_client` sets `.timeout(None)` deliberately so a 542 MB transfer
+/// is not capped. The attempt therefore had no bound at all, and a retry that
+/// cannot end an attempt cannot retry -- the installer's worker would have sat
+/// on the VS Code update API forever with the GUI showing a step in progress,
+/// and `prevent_close` stops the user closing the window while an op runs.
+/// `tcp_keepalive` does not catch this: the peer keeps ACKing.
+///
+/// ON ITS OWN THREAD, bounded by `recv_timeout`, for the same reason
+/// `stalled_but_alive_connection_errors_instead_of_hanging` above does it:
+/// WITHOUT the fix this call never returns, so a plain assertion could not
+/// fail -- it would hang the suite until the CI job's own timeout killed it,
+/// with no failing test name in the output. Removing the timeout must fail
+/// THIS test, not the job.
+///
+/// `max_attempts: 1` because the stalling server serves exactly one
+/// connection; the point here is that the attempt TERMINATES.
+#[test]
+fn get_text_bounds_an_attempt_against_a_stalling_peer() {
+    let read_timeout = Duration::from_millis(300);
+    let server = TestServer::start_stalling_after_headers(200);
+    let url = server.url();
+    let opts = FetchOptions {
+        max_attempts: 1,
+        backoff_base: Duration::from_millis(1),
+        read_timeout,
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // Exactly what `download_client` builds: no total timeout, so the only
+        // bound is the per-request one under test.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(None)
+            .build()
+            .unwrap();
+        let _ = tx.send(get_text_with_retry(&client, &url, &opts));
+    });
+
+    let result = rx.recv_timeout(read_timeout * 20).expect(
+        "a stalled peer must end the attempt within roughly read_timeout;          hanging here means the per-request timeout is gone",
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.is_timeout(),
+        "a stalled peer must surface as a timeout, got {err}"
+    );
 }

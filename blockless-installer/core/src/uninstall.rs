@@ -20,8 +20,8 @@
 
 use crate::profile;
 use crate::state::State;
-use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// OS-native deletion operations, injected so this is unit-testable without
 /// a real filesystem-tree removal or a real VS Code uninstaller.
@@ -37,6 +37,64 @@ pub trait UninstallRunner {
     /// ran, `Ok(false)` if there's no such uninstaller (caller falls back to
     /// `remove_dir_all`), `Err` if it exists but failed to run.
     fn run_vscode_uninstaller(&self, vscode_dir: &Path) -> Result<bool, String>;
+
+    /// How long to keep re-checking that a removed directory has actually
+    /// disappeared before concluding the removal failed.
+    ///
+    /// WHAT WAS OBSERVED, on the Windows Sandbox rig 2026-09-22: checking once,
+    /// immediately, reported a failed uninstall on EVERY first attempt. The
+    /// same snapshot that carried "VS Code could not be fully removed" also
+    /// showed the directory gone, and a second uninstall then succeeded with
+    /// nothing else changed. That false failure is not cosmetic -- it trips the
+    /// `!vscode_cleanup_complete` bail-out below, so BLK is left on disk and
+    /// the rest of the uninstall never runs.
+    ///
+    /// WHY, less certainly. Two mechanisms both fit, and the rig did not
+    /// distinguish them:
+    /// - Windows keeps a directory entry visible until the last handle to
+    ///   anything inside it closes ("delete-pending"), so a tree that WAS
+    ///   deleted can still answer `exists() == true` briefly.
+    /// - Inno Setup's uninstaller is two-phase: `unins000.exe` (what
+    ///   `run_vscode_uninstaller` waits on) exits when the second phase signals
+    ///   it, and that second phase THEN deletes the directory. On this reading
+    ///   the call returns before removal by design, with no handle race at all.
+    ///
+    /// Waiting fixes both, which is why this is written as a wait rather than
+    /// as a claim about which one it is. The 10s default is a guess with
+    /// headroom, not a measurement: the rig sampled every 30s and never
+    /// bracketed the actual interval.
+    ///
+    /// Zero means check once and never sleep; the test runners return that, so
+    /// the suite stays fast while production gets real tolerance.
+    fn removal_settle_timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
+}
+
+/// `true` once `path` is really gone, re-checking until the runner's
+/// [`UninstallRunner::removal_settle_timeout`] elapses.
+///
+/// Returns immediately when the path is already absent, so the common case
+/// costs nothing. Only a genuinely surviving directory pays the full wait,
+/// and that one deserves to.
+///
+/// The rig documentation warns observers that "sampling 'is it gone?'
+/// immediately after uninstall returns is not a measurement". The same applies
+/// to the code doing the removing, where being fooled changes behaviour rather
+/// than merely misleading a reader -- whichever of the two mechanisms in
+/// [`UninstallRunner::removal_settle_timeout`] is responsible.
+fn removal_settled(runner: &dyn UninstallRunner, path: &Path) -> bool {
+    if !path.exists() {
+        return true;
+    }
+    let deadline = Instant::now() + runner.removal_settle_timeout();
+    while Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(250));
+        if !path.exists() {
+            return true;
+        }
+    }
+    !path.exists()
 }
 
 /// `^[A-Za-z0-9_-]+$`, hand-rolled (no regex dependency for one allowlist
@@ -50,68 +108,9 @@ fn is_safe_location(loc: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-fn read_storage(storage_path: &Path) -> Option<Value> {
-    let bytes = std::fs::read(storage_path).ok()?;
-    serde_json::from_slice(&bytes).ok()
-}
-
-fn write_atomic(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let parent = dest.parent().unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(parent)?;
-    let file_name = dest
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "storage.json".to_string());
-    let tmp = parent.join(format!("{file_name}.tmp"));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, dest)
-}
-
-/// Best-effort: filters our entry out if the file exists and parses.
-/// Silent on any failure (missing, unreadable, unparseable, wrong shape) --
-/// the invariant guard right after this is what actually enforces safety,
-/// not this function's return value (it has none).
-fn remove_storage_entry(storage_path: &Path, profile_name: &str) {
-    let Some(mut root) = read_storage(storage_path) else {
-        return;
-    };
-    let Some(obj) = root.as_object_mut() else {
-        return;
-    };
-    if let Some(list) = obj
-        .get_mut("userDataProfiles")
-        .and_then(Value::as_array_mut)
-    {
-        list.retain(|e| e.get("name").and_then(Value::as_str) != Some(profile_name));
-    } else {
-        return;
-    }
-    let Ok(body) = serde_json::to_vec_pretty(&root) else {
-        return;
-    };
-    let _ = write_atomic(storage_path, &body);
-}
-
-/// Fail-closed: `true` only when we can POSITIVELY confirm the entry is
-/// gone. Missing file = confirmed gone. Unreadable/unparseable/wrong-shape
-/// = cannot confirm = treated as still present.
-fn storage_entry_confirmed_absent(storage_path: &Path, profile_name: &str) -> bool {
-    if !storage_path.exists() {
-        return true;
-    }
-    let Some(root) = read_storage(storage_path) else {
-        return false; // exists but unreadable/unparseable: cannot confirm
-    };
-    let present = root
-        .get("userDataProfiles")
-        .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .any(|e| e.get("name").and_then(Value::as_str) == Some(profile_name))
-        })
-        .unwrap_or(false);
-    !present
-}
+#[path = "uninstall/storage.rs"]
+mod storage;
+use storage::{remove_storage_entry, storage_entry_confirmed_absent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UninstallFlags {
@@ -207,7 +206,7 @@ pub fn uninstall(
 
     let mut profile_removed = false;
     if profile_created_by_us {
-        remove_storage_entry(storage_path, profile_name);
+        remove_storage_entry(storage_path, profile_name, &profile_location);
 
         let loc_safe = is_safe_location(&profile_location);
         if loc_safe {
@@ -223,7 +222,18 @@ pub fn uninstall(
         // Mirrors the scripts exactly: for an unsafe location, presence is
         // never even checked (there is nothing we attempted to remove at an
         // untrusted path), so it never blocks the guard on its own.
-        let dir_still_present = loc_safe && profiles_dir.join(&profile_location).exists();
+        //
+        // `removal_settled`, not a bare `exists()`, for the same reason the VS
+        // Code and BLK removals use it: a directory removed moments ago can
+        // still answer `exists() == true`. This path matters MORE than those
+        // two, not less -- a false positive here trips the invariant guard,
+        // which abandons the whole uninstall rather than just one step, and
+        // leaves the journal claiming the profile is still ours.
+        //
+        // Missed in the first pass at this defect, which patched the other two
+        // call sites and left the most severe one alone.
+        let dir_still_present =
+            loc_safe && !removal_settled(runner, &profiles_dir.join(&profile_location));
 
         if !entry_gone || dir_still_present {
             return UninstallOutcome::Finished {
@@ -255,8 +265,14 @@ pub fn uninstall(
             }
             any_existed = true;
             let removed = match runner.run_vscode_uninstaller(vscode_dir) {
-                Ok(true) => !vscode_dir.exists(),
-                Ok(false) => runner.remove_dir_all(vscode_dir).is_ok() && !vscode_dir.exists(),
+                // `removal_settled`, not a bare `exists()`: VS Code's own
+                // `unins000.exe` can return before its work is visible, and
+                // Windows keeps the directory entry until the last handle
+                // closes either way.
+                Ok(true) => removal_settled(runner, vscode_dir),
+                Ok(false) => {
+                    runner.remove_dir_all(vscode_dir).is_ok() && removal_settled(runner, vscode_dir)
+                }
                 Err(_) => false,
             };
             all_removed &= removed;
@@ -287,7 +303,9 @@ pub fn uninstall(
 
     let (blk_removed, blk_removal_partial) = if blk.exists() {
         let attempted = runner.remove_dir_all(blk);
-        if attempted.is_ok() && !blk.exists() {
+        // Same delete-pending tolerance as the VS Code removal above: without
+        // it, a successful BLK delete can report `blk_removal_partial`.
+        if attempted.is_ok() && removal_settled(runner, blk) {
             (true, false)
         } else {
             (false, true)

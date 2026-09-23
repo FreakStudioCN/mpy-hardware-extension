@@ -31,6 +31,38 @@ fn committed_manifest_parses_and_validates() {
     assert_eq!(manifest.components.python_extension.id, "ms-python.python");
 }
 
+/// The manifest's `installerVersion` must match the crate it ships with.
+///
+/// It is hand-maintained, and it is what `ops::support`'s diagnostics bundle
+/// reports as `facts.installerVersion` -- the first field anyone reads when
+/// triaging a report from a user. There are four independent copies of this
+/// number (`Cargo.toml`, `app/Cargo.toml`, `app/tauri.conf.json` and this
+/// manifest) and nothing else compares them, so bumping the crate and
+/// forgetting the manifest would make every diagnostics bundle quietly claim
+/// the old version. A wrong version in a bug report is worse than a missing
+/// one: it is believed.
+///
+/// `tauri.conf.json` is still outside this check -- it names the bundle, not
+/// anything Rust reads -- so it stays a human step.
+///
+/// NOTE this deliberately does NOT tie the installer to the EXTENSION's
+/// version (`components.extension.version`, 0.4.3 to this crate's 0.1.0).
+/// They ship on separate cadences: this component is fixed and released
+/// without the extension changing, and the extension goes to the
+/// marketplaces without the installer moving. The manifest models that
+/// correctly -- `installerVersion` is this tool, `components.extension`
+/// is what it installs.
+#[test]
+fn committed_manifest_installer_version_matches_this_crate() {
+    let manifest = Manifest::parse(COMMITTED_MANIFEST).unwrap();
+    assert_eq!(
+        manifest.installer_version,
+        env!("CARGO_PKG_VERSION"),
+        "manifest/installer.manifest.json's installerVersion has drifted from the crate \
+         version; diagnostics bundles would report the wrong installer version"
+    );
+}
+
 /// `components.uv.sha256.*` (all 4 platforms) now carry the real uv
 /// 0.11.29 checksums, fetched from each asset's published `.sha256` file
 /// at `github.com/astral-sh/uv/releases/download/0.11.29/` and

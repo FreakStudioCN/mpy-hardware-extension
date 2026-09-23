@@ -129,14 +129,15 @@ fn fetch_update_api_response(
     client: &reqwest::blocking::Client,
     url: &str,
 ) -> Result<VscodeUpdateApiResponse, VscodeError> {
-    let body = client
-        .get(url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .and_then(|r| r.text())
-        .map_err(|source| VscodeError::UpdateApiRequest {
-            url: url.to_string(),
-            source,
+    // Retried, like the download this call gates. It used to be a single
+    // `client.get(url).send()`: one transient blip on a cold-booted machine
+    // became a first-run failure screen. See `fetch::get_text_with_retry`.
+    let body =
+        fetch::get_text_with_retry(client, url, &FetchOptions::default()).map_err(|source| {
+            VscodeError::UpdateApiRequest {
+                url: url.to_string(),
+                source,
+            }
         })?;
     VscodeUpdateApiResponse::parse(&body).map_err(|source| VscodeError::UpdateApiParse {
         url: url.to_string(),

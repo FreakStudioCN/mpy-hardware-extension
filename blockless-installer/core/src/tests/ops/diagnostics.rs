@@ -29,6 +29,11 @@ fn diagnostics_bundle_contains_expected_entries() {
     let facts: serde_json::Value = serde_json::from_str(&facts_content).unwrap();
     assert_eq!(facts["os"], "macos");
     assert_eq!(facts["arch"], "arm64");
+    // Present and non-empty, never pinned to a value: it changes every commit.
+    // This asserts the field EXISTS, because a bundle without it sends the
+    // next triager back to an ambiguous "0.1.0".
+    let sha = facts["gitSha"].as_str().expect("gitSha must be a string");
+    assert!(!sha.is_empty(), "gitSha must never be blank");
 }
 
 /// The failure a bundle exists to explain must not also prevent the

@@ -109,6 +109,13 @@ impl UninstallRunner for FakeUninstallRunner {
             .clone()
             .unwrap_or(Ok(false))
     }
+    /// No delete-pending tolerance in tests: this fixture's removals are
+    /// synchronous, and a directory it deliberately leaves in place is
+    /// meant to be seen as surviving immediately. Without this override the
+    /// failure-path cases would each sleep out the production timeout.
+    fn removal_settle_timeout(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
 }
 
 fn write_state(path: &Path, state: &State) {
@@ -671,3 +678,76 @@ fn all_flag_forces_removal_even_when_not_installed_by_us() {
 
 #[path = "uninstall/flags.rs"]
 mod flags;
+
+#[path = "uninstall/associations.rs"]
+mod associations;
+
+// --- removal_settled's polling branch ---
+//
+// Every fixture above returns `Duration::ZERO` so the suite stays fast, which
+// means the actual re-checking loop had NO coverage: a mutation that checked
+// once and gave up passed everything. These two tests use a real (small)
+// timeout and are the only place the wait is exercised.
+
+/// A runner that waits for real, so the loop is actually driven.
+struct SettlingRunner {
+    timeout: std::time::Duration,
+}
+
+impl UninstallRunner for SettlingRunner {
+    fn remove_dir_all(&self, _path: &Path) -> Result<(), String> {
+        Ok(())
+    }
+    fn run_vscode_uninstaller(&self, _dir: &Path) -> Result<bool, String> {
+        Ok(false)
+    }
+    fn removal_settle_timeout(&self) -> std::time::Duration {
+        self.timeout
+    }
+}
+
+/// A directory that disappears shortly AFTER the check begins must be reported
+/// as gone. This is the delete-pending case the whole mechanism exists for:
+/// the removal has happened, the entry has not caught up yet.
+#[test]
+fn removal_settled_waits_for_a_late_disappearance() {
+    let dir = std::env::temp_dir().join(format!("blk-settle-late-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let victim = dir.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let _ = std::fs::remove_dir_all(&victim);
+    });
+
+    let runner = SettlingRunner {
+        timeout: std::time::Duration::from_secs(5),
+    };
+    let started = std::time::Instant::now();
+    assert!(
+        removal_settled(&runner, &dir),
+        "a directory removed 400ms in must be reported as gone, not as a failure"
+    );
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(200),
+        "it must actually have waited; returning instantly means the loop never ran"
+    );
+}
+
+/// A directory that never goes away must still be reported as present once the
+/// budget is spent. Fail-closed: the guard exists to stop an uninstall that
+/// genuinely did not remove what it claimed.
+#[test]
+fn removal_settled_gives_up_on_a_directory_that_stays() {
+    let dir = std::env::temp_dir().join(format!("blk-settle-stays-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let runner = SettlingRunner {
+        timeout: std::time::Duration::from_millis(600),
+    };
+    assert!(
+        !removal_settled(&runner, &dir),
+        "a surviving directory must never be reported as gone"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
