@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SI4732(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "si4732.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "si4732"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si4732_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "am_tune_freq",
+    "command",
+    "const",
+    "deinit",
+    "fm_tune_freq",
+    "get_int_status",
+    "get_property",
+    "get_revision",
+    "get_tune_status",
+    "power_down",
+    "power_up",
+    "read_response",
+    "reset",
+    "self_test",
+    "set_property",
+    "sleep_ms",
+    "ticks_diff",
+    "ticks_ms",
+    "wait_cts"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

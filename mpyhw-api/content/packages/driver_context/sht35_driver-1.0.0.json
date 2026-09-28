@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT35(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sht35.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "sht35"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht35_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "clear_status",
+    "const",
+    "deinit",
+    "get_temp_humi",
+    "heater",
+    "humidity",
+    "measure",
+    "read_raw",
+    "read_status",
+    "reset"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

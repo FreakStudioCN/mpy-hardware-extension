@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMA423(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bma423.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bma423"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bma423_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "alloc_emergency_exception_buf",
+    "const",
+    "deinit",
+    "enable_accelerometer",
+    "enable_features_detection",
+    "enable_interrupt",
+    "get_steps",
+    "get_temperature",
+    "get_xyz",
+    "load_features_config",
+    "reset",
+    "schedule",
+    "set_accelerometer_avg",
+    "set_accelerometer_freq",
+    "set_accelerometer_perf",
+    "set_advanced_power_save",
+    "set_range"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

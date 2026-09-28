@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMI160(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    "i2c_helpers"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmi160_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acc_power_mode",
+    "acceleration",
+    "acceleration_bandwidth_parameter",
+    "acceleration_output_data_rate",
+    "acceleration_range",
+    "acceleration_undersample",
+    "deinit",
+    "error_code",
+    "gyro",
+    "gyro_bandwidth_parameter",
+    "gyro_output_data_rate",
+    "gyro_power_mode",
+    "gyro_range",
+    "power_mode_status",
+    "soft_reset"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

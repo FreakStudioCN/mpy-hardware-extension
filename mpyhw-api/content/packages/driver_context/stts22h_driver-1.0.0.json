@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "STTS22H(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    "micropython_stts22h"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/stts22h_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "high_limit",
+    "low_limit",
+    "output_data_rate",
+    "temperature_high_limit",
+    "temperature_low_limit"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}
