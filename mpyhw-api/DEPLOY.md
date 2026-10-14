@@ -1,5 +1,8 @@
 # Deploying mpyhw-api to Render
 
+> **Legacy.** Production moved to `https://blockless.upypi.net` (see `deploy/README.md`); the Render
+> service is suspended. This doc is kept only as the record of how the Render Blueprint worked.
+
 The backend ships as a host-agnostic Docker image and is configured for Render
 with the root `render.yaml` Blueprint. Render must build from the repo root,
 because the image needs `third_party/MicroPython_Skills` in addition to

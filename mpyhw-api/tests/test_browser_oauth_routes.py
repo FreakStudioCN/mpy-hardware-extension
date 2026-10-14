@@ -100,3 +100,27 @@ def test_browser_oauth_callback_and_exchange_are_one_time(monkeypatch):
     second = client.post("/v1/auth/browser/exchange", json={"code": short_code})
     assert second.status_code == 400
     assert second.json()["detail"]["error"] == "invalid_auth_code"
+
+
+def test_browser_oauth_start_caps_pending_states(monkeypatch):
+    # The start route is anonymous: an unbounded state dict is a memory DoS. Mutation: drop the
+    # cap in auth_github_start and the dict grows to 5.
+    from app import routes_auth
+
+    monkeypatch.setenv("MPYHW_GITHUB_CLIENT_ID", "cid")
+    monkeypatch.setenv("MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS", "https://block-less.com")
+    monkeypatch.setattr(routes_auth, "_MAX_PENDING_STATES", 3)
+    monkeypatch.setattr(routes_auth, "_oauth_states", {})
+
+    states = []
+    for _ in range(5):
+        response = client.get(
+            "/v1/auth/github/start",
+            params={"redirect_uri": "https://block-less.com/ide/"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+        states.append(query["state"][0])
+
+    assert list(routes_auth._oauth_states) == states[2:]

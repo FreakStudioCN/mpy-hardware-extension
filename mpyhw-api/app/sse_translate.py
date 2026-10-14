@@ -1,4 +1,4 @@
-"""DeepSeek provider + SSE stream translation for /v1/llm/messages, plus the plain (non-agent) completion helper used by web_recommend. Pure move out of routes_llm.py (Phase B tidy)."""
+"""DeepSeek provider + SSE stream translation for /v1/llm/messages. Pure move out of routes_llm.py (Phase B tidy)."""
 
 from __future__ import annotations
 
@@ -196,8 +196,7 @@ def _deepseek_payload(body: dict[str, Any], *, provider=None) -> dict[str, Any]:
 # Retry only the connect / pre-first-byte phase: this returns BEFORE any response byte is
 # yielded and before the turn is metered, so a retry can never double-charge. A mid-stream
 # drop is handled downstream and is NOT retried. The blocking sleep is off the event loop
-# either way: to_thread for the streaming open, the sync route's own threadpool for the
-# plain call (_call_deepseek_plain's only production caller, web_recommend, is a sync def).
+# via to_thread.
 #
 # An outage is all-or-nothing, so a second attempt is either enough or hopeless. A PARTIAL
 # ROLLOUT is different in kind: it rejects a fixed FRACTION of calls, so the budget has to beat
@@ -215,10 +214,9 @@ _OPEN_RETRY_BUDGET = {"provider_rollout": 5, "outage": 2, "rate_limited": 2}
 
 def _open_upstream(request: urllib.request.Request, timeout: int):
     """Open an upstream POST, retrying the connect/pre-first-byte phase per the
-    rejection's kind. Shared by the streaming open (_open_deepseek_stream) and the
-    tool-free plain call (_call_deepseek_plain) so a provider mid-rollout or a real
-    rate-limit storm gets the same survival odds on both paths, while a dry-quota
-    account or a bad request still fails on the first attempt everywhere."""
+    rejection's kind, for the streaming open (_open_deepseek_stream): a provider
+    mid-rollout or a real rate-limit storm gets retried, while a dry-quota account or a
+    bad request still fails on the first attempt."""
     attempt = 0
     while True:
         try:
@@ -495,80 +493,3 @@ def _payload_violation(name: str, arguments: str) -> str | None:
         if not payload.get("content"):
             return "file_operation write/append requires content"
     return None
-
-
-def _call_deepseek_plain(
-    messages: list[dict[str, Any]],
-    max_tokens: int,
-    timeout: int = 120,
-    response_format: dict[str, Any] | None = None,
-    model: str | None = None,
-    provider=None,
-) -> tuple[str, dict[str, Any]]:
-    """A tool-free, single-shot DeepSeek generation (used for nested codegen).
-
-    provider (keyword, None) selects the upstream; None keeps the DeepSeek constants verbatim.
-
-    Bypasses _deepseek_messages so the codegen prompt is clean (no adapter/SKILL
-    prefix). Returns (text, usage). Raises UpstreamError on connect failure.
-
-    timeout defaults to 120s for codegen; the anonymous web-recommend path passes a
-    short value so a hung connection can't hold a worker for two minutes. The open
-    is retried per _open_upstream's per-kind budget, so the real worst case is that
-    timeout times the budget (5 for a provider_rollout run of bad luck) plus the
-    inter-attempt sleep -- still well under two minutes for either caller's timeout.
-
-    response_format is optional and only sent when provided (the web-recommend path passes
-    {"type": "json_object"} for JSON mode); codegen callers omit it and are unaffected.
-
-    model overrides the upstream model for this single call; defaults to the global
-    MPYHW_LLM_MODEL. The web-recommend path passes a non-thinking model so its tiny
-    max_tokens budget isn't consumed by reasoning_content; codegen omits it and stays
-    on the global (thinking) model.
-    """
-    payload = {
-        "model": model or os.getenv("MPYHW_LLM_MODEL", provider.default_model if provider else "deepseek-v4-pro"),
-        "messages": messages,
-    }
-    if provider is None or provider.send_temperature:
-        payload["temperature"] = 0.2
-    payload["stream"] = True
-    payload["stream_options"] = {"include_usage": True}
-    payload[provider.max_tokens_param if provider else "max_tokens"] = max_tokens
-    if response_format is not None:
-        payload["response_format"] = response_format
-    base_env, base_default = (provider.base_url_env, provider.default_base_url) if provider else ("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    base_url = os.getenv(base_env, base_default).rstrip("/")
-    key_env = provider.api_key_env if provider else "DEEPSEEK_API_KEY"
-    req = urllib.request.Request(
-        f"{base_url}/chat/completions",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"content-type": "application/json", "authorization": f"Bearer {os.environ[key_env]}"},
-        method="POST",
-    )
-    upstream = _R()._open_upstream(req, timeout)
-    text_parts: list[str] = []
-    usage_obj: dict[str, Any] = {}
-    try:
-        for raw_line in upstream:
-            line = raw_line.decode("utf-8").strip()
-            if not line.startswith("data:"):
-                continue
-            data = line[len("data:"):].strip()
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            if chunk.get("usage"):
-                usage_obj = chunk["usage"]
-            for choice in chunk.get("choices") or []:
-                piece = (choice.get("delta") or {}).get("content")
-                if piece:
-                    text_parts.append(piece)
-    finally:
-        close = getattr(upstream, "close", None)
-        if callable(close):
-            close()
-    return "".join(text_parts), usage_obj

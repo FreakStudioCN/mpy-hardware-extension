@@ -1,29 +1,42 @@
 from __future__ import annotations
 
-import logging
+import os
+import threading
+import time
+from collections import deque
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field
 
-from app import recommendation_catalog, web_recommend, web_store
+from app import web_store
 
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+
+_rate_lock = threading.Lock()
+_rate_hits: dict[str, deque[float]] = {}
 
 
-class WebRecommendRequest(BaseModel):
-    idea: str = Field(min_length=1, max_length=500)
-    locale: str = Field(default="en", max_length=8)
-    region: str = Field(default="us", max_length=32)
+def reset() -> None:
+    """Clear in-process limiter state (tests)."""
+    with _rate_lock:
+        _rate_hits.clear()
 
-    @field_validator("idea")
-    @classmethod
-    def _idea_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("idea must not be blank")
-        return value
+
+def enforce_rate_limit(request: Any) -> None:
+    client = getattr(request, "client", None)
+    ip = getattr(client, "host", None) or "unknown"
+    window = float(os.getenv("MPYHW_WEB_RECOMMEND_WINDOW", "60"))
+    limit = int(os.getenv("MPYHW_WEB_RECOMMEND_RATE", "10"))
+    now = time.monotonic()
+    with _rate_lock:
+        hits = _rate_hits.setdefault(ip, deque())
+        while hits and now - hits[0] > window:
+            hits.popleft()
+        if len(hits) >= limit:
+            raise HTTPException(status_code=429, detail={"error": "rate_limited"})
+        hits.append(now)
 
 
 class WebEventRequest(BaseModel):
@@ -33,151 +46,10 @@ class WebEventRequest(BaseModel):
     source: str = Field(default="website-home", max_length=64)
 
 
-class WebNewsletterRequest(BaseModel):
-    email: EmailStr = Field(max_length=254)
-    locale: str = Field(default="en", max_length=8)
-    source: str = Field(default="website-home", max_length=64)
-
-
-class WebUploadRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
-    email: EmailStr | None = Field(default=None, max_length=254)
-    summary: str = Field(default="", max_length=1000)
-    recipe: dict[str, Any] = Field(default_factory=dict)
-    locale: str = Field(default="en", max_length=8)
-    source: str = Field(default="website-upload", max_length=64)
-
-    @field_validator("title")
-    @classmethod
-    def _title_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("title must not be blank")
-        return value
-
-
-class WebQuoteRequest(BaseModel):
-    email: EmailStr = Field(max_length=254)
-    recipe_slug: str | None = Field(default=None, max_length=120)
-    recipe_title: str = Field(default="", max_length=120)
-    goal: str = Field(default="", max_length=120)
-    quantity: str = Field(default="", max_length=80)
-    notes: str = Field(default="", max_length=2000)
-    locale: str = Field(default="en", max_length=8)
-    source: str = Field(default="website-quote", max_length=64)
-
-
-@router.post("/v1/web/recommend")
-def web_recommend_route(request: WebRecommendRequest, http_request: Request):
-    web_recommend.enforce_rate_limit(http_request)
-    idea = request.idea.strip()
-    result = web_recommend.recommend(idea, region=request.region)
-    # The pipeline already chose the board (idea-driven: a board-family hint picks a
-    # board of that family), so don't re-select it here.
-    board = result.get("board")
-    purchase_links = recommendation_catalog.load_purchase_links(request.region)
-    starter_prompt = f"Build a MicroPython project for: {idea}"
-    handoff = {
-        "starter_prompt": starter_prompt,
-        "locale": request.locale,
-        "region": request.region,
-        "board_slug": board.get("slug") if board else None,
-        "capabilities": result["capabilities"],
-        "board_family_hint": result["board_family_hint"],
-    }
-    if board:
-        slug = board.get("slug")
-        # Curated, verified, buyable product page first; then the generated catalog
-        # links. Family/SoC pages (e.g. espressif.com/en/products/modules) are stripped
-        # so they can neither be the buy action nor leak in purchase_links. The front-end
-        # shows only the single primary_link.
-        curated = recommendation_catalog.board_purchase_links(slug, request.region)
-        seen_urls = {link.get("url") for link in curated}
-        generated = purchase_links.get(slug, []) if slug else []
-        links = recommendation_catalog.filter_buyable_links(
-            curated + [link for link in generated if link.get("url") not in seen_urls]
-        )
-        primary = recommendation_catalog.select_primary_link(links)
-        if primary is None:
-            # Fail fast: a recommended board with no buyable link (everything filtered out
-            # to vendor family/SoC pages) is a real data gap. Surface it loudly -- never a
-            # soft "pending" state, and never a fabricated corporate link. The beginner set
-            # (S3 / Pico W) is curated, so this fires only on a genuine data regression.
-            logger.error("web recommend: no buyable purchase link for recommended board %s", slug)
-            raise HTTPException(status_code=500, detail={"error": "board_unbuyable", "slug": slug})
-        firmware = board.get("firmware") or {}
-        release = firmware.get("latest_release") or {}
-        recommended_board = {
-            "name": board.get("name") or slug or "MicroPython board",
-            "why": "Beginner-friendly MicroPython target with official firmware and purchase guidance.",
-            "buy_url": primary["url"],
-            "primary_link": primary,
-            "purchase_links": links,
-            "micropython_url": board.get("detail_url"),
-            "firmware_url": release.get("url"),
-            "source": "micropython_catalog",
-        }
-    else:
-        fallback_url = "https://www.amazon.com/s?k=esp32-s3+devkitc-1"
-        recommended_board = {
-            "name": "ESP32-S3 DevKitC-1",
-            "why": "Good MicroPython support, Wi-Fi, USB, and enough GPIO pins for beginner hardware builds.",
-            "buy_url": fallback_url,
-            "primary_link": {"url": fallback_url, "store": "Amazon", "is_search": True},
-        }
-    return {
-        "recommended_board": recommended_board,
-        "parts": result["parts"],
-        "starter_prompt": starter_prompt,
-        "handoff": handoff,
-        # Retrieval path that served: always "llm" on success. The endpoint fails fast
-        # rather than degrading -- an unusable LLM returns an explicit 503/422, never a
-        # masked keyword guess. (Distinct from recommended_board["source"], which is the
-        # board's data provenance.)
-        "source": result["source"],
-    }
-
-
+# Caller: the VS Code extension's welcome page (mpy-hardware-extension/src/extension/web-telemetry.ts).
 @router.post("/v1/web/events", status_code=204)
 def web_events(request: WebEventRequest, http_request: Request):
-    web_recommend.enforce_rate_limit(http_request)
+    enforce_rate_limit(http_request)
     # Best-effort persist (swallows DB/no-DB failures); the endpoint always 204s.
     web_store.record_web_event(request.event_type, request.payload, request.locale, request.source)
     return Response(status_code=204)
-
-
-@router.post("/v1/web/newsletter", status_code=204)
-def web_newsletter(request: WebNewsletterRequest, http_request: Request):
-    web_recommend.enforce_rate_limit(http_request)
-    # Best-effort persist; on failure the email is logged, so the lead is recoverable.
-    web_store.record_newsletter_signup(request.email, request.locale, request.source)
-    return Response(status_code=204)
-
-
-@router.post("/v1/web/uploads", status_code=202)
-def web_uploads(request: WebUploadRequest, http_request: Request):
-    web_recommend.enforce_rate_limit(http_request)
-    upload_id = web_store.record_recipe_upload(
-        request.title.strip(),
-        str(request.email).strip().lower() if request.email else None,
-        request.summary.strip(),
-        request.recipe,
-        request.locale,
-        request.source,
-    )
-    return {"ok": True, "upload_id": upload_id}
-
-
-@router.post("/v1/web/quotes", status_code=202)
-def web_quotes(request: WebQuoteRequest, http_request: Request):
-    web_recommend.enforce_rate_limit(http_request)
-    quote_id = web_store.record_quote_request(
-        str(request.email).strip().lower(),
-        request.recipe_slug,
-        request.recipe_title.strip(),
-        request.goal.strip(),
-        request.quantity.strip(),
-        request.notes.strip(),
-        request.locale,
-        request.source,
-    )
-    return {"ok": True, "quote_id": quote_id}

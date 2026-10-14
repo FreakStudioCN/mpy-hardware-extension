@@ -13,7 +13,7 @@ This repo contains both halves of the product:
 ## Current status
 
 - The local end-to-end dev workflow is working.
-- The backend is deployed on Render (+ hosted Postgres, see `mpyhw-api/DEPLOY.md`); you can also keep running it locally (below).
+- The backend runs at `https://blockless.upypi.net` (container on the ops owner's host, shipped by `.github/workflows/publish-image.yml`; see `mpyhw-api/deploy/README.md`); you can also keep running it locally (below).
 - The extension is packaged with `@vscode/vsce`.
 - Real on-device flashing is still a separate verification track; the current automated tests use a mocked/shimmed device flow.
 
@@ -220,16 +220,9 @@ After reinstalling a freshly built VSIX, a full quit and restart of VS Code is r
 
 ## Backend deployment
 
-The full deployment doc is in `mpyhw-api/DEPLOY.md`.
+Production is `https://blockless.upypi.net`: the `mpyhw-api` service inside the ops owner's existing compose stack, behind his Caddy. Every push to `main` (and every `v*` tag) builds `ghcr.io/freakstudiocn/mpyhw-api` and deploys it through the self-hosted `upypi` runner (`.github/workflows/publish-image.yml`). Container and env details: `mpyhw-api/deploy/README.md`.
 
-Short version:
-
-```sh
-git submodule update --init --recursive
-# In Render, create a Blueprint from the repo-root render.yaml.
-# Fill DEEPSEEK_API_KEY and MPYHW_ADMIN_TOKEN when Render prompts for secrets.
-# Render creates blockless-api and blockless-db, then injects DATABASE_URL.
-```
+The Render Blueprint (`render.yaml`, `mpyhw-api/DEPLOY.md`) is the previous host; that service is suspended.
 
 On production startup the backend validates the required secrets. If any are missing or still set to dev defaults, the backend fails to start, preventing a misconfigured deploy from going live.
 
@@ -284,7 +277,7 @@ Blockless 可以把一句自然语言硬件想法变成一个 MicroPython 项目
 ## 当前状态
 
 - 本地端到端开发流程已可用。
-- 后端已部署在 Render（+ 托管 Postgres，见 `mpyhw-api/DEPLOY.md`）；也可继续本地自起后端（见下文）。
+- 后端运行在 `https://blockless.upypi.net`（ops owner 主机上的容器，由 `.github/workflows/publish-image.yml` 发布，见 `mpyhw-api/deploy/README.md`）；也可继续本地自起后端（见下文）。
 - 扩展使用 `@vscode/vsce` 打包。
 - 真板烧录验证仍是独立验证线；当前自动化测试使用 mock/shim 的设备流程。
 
@@ -491,16 +484,9 @@ code --install-extension build/mpy-hardware-extension-0.3.9.vsix --force
 
 ## 后端部署
 
-完整部署文档在 `mpyhw-api/DEPLOY.md`。
+生产环境是 `https://blockless.upypi.net`：ops owner 现有 compose 栈里的 `mpyhw-api` 服务，走他的 Caddy。每次 push `main`（以及每个 `v*` tag）都会构建 `ghcr.io/freakstudiocn/mpyhw-api`，并通过自托管 `upypi` runner 部署（`.github/workflows/publish-image.yml`）。容器和环境变量见 `mpyhw-api/deploy/README.md`。
 
-简版流程：
-
-```sh
-git submodule update --init --recursive
-# In Render, create a Blueprint from the repo-root render.yaml.
-# Fill DEEPSEEK_API_KEY and MPYHW_ADMIN_TOKEN when Render prompts for secrets.
-# Render creates blockless-api and blockless-db, then injects DATABASE_URL.
-```
+Render Blueprint（`render.yaml`、`mpyhw-api/DEPLOY.md`）是之前的托管方式，该服务已暂停。
 
 生产环境启动时会校验必需 secret。如果缺失或仍使用 dev 默认值，后端会直接启动失败，避免错误配置上线。
 

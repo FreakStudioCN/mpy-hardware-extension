@@ -6,6 +6,7 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+import threading
 import time
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -20,6 +21,11 @@ _oauth_states: dict[str, dict[str, object]] = {}
 _browser_codes: dict[str, dict[str, object]] = {}
 _STATE_TTL_SECONDS = 10 * 60
 _CODE_TTL_SECONDS = 5 * 60
+# /v1/auth/github/start is anonymous, so without a cap every request would grow this dict for
+# the full TTL. Pending states are inserted in expiry order (fixed TTL), so the first key is
+# always the oldest; evicting it only costs that visitor a retry of the login.
+_MAX_PENDING_STATES = 1000
+_states_lock = threading.Lock()  # guards every _oauth_states mutation (start runs on the threadpool)
 
 
 def _now() -> float:
@@ -28,9 +34,10 @@ def _now() -> float:
 
 def _cleanup() -> None:
     now = _now()
-    for key, value in list(_oauth_states.items()):
-        if float(value.get("expires_at", 0)) < now:
-            _oauth_states.pop(key, None)
+    with _states_lock:
+        for key, value in list(_oauth_states.items()):
+            if float(value.get("expires_at", 0)) < now:
+                _oauth_states.pop(key, None)
     for key, value in list(_browser_codes.items()):
         if float(value.get("expires_at", 0)) < now:
             _browser_codes.pop(key, None)
@@ -133,7 +140,10 @@ def auth_github_start(redirect_uri: str = Query(...)):
     if not client_id:
         raise HTTPException(status_code=500, detail={"error": "github_oauth_not_configured"})
     state = secrets.token_urlsafe(32)
-    _oauth_states[state] = {"redirect_uri": redirect_uri, "expires_at": _now() + _STATE_TTL_SECONDS}
+    with _states_lock:
+        while len(_oauth_states) >= _MAX_PENDING_STATES:
+            _oauth_states.pop(next(iter(_oauth_states)), None)
+        _oauth_states[state] = {"redirect_uri": redirect_uri, "expires_at": _now() + _STATE_TTL_SECONDS}
     query = urllib.parse.urlencode(
         {
             "client_id": client_id,
@@ -148,7 +158,8 @@ def auth_github_start(redirect_uri: str = Query(...)):
 @router.get("/v1/auth/github/callback")
 async def auth_github_callback(code: str = Query(...), state: str = Query(...)):
     _cleanup()
-    state_payload = _oauth_states.pop(state, None)
+    with _states_lock:
+        state_payload = _oauth_states.pop(state, None)
     if not state_payload:
         raise HTTPException(status_code=400, detail={"error": "invalid_oauth_state"})
     access_token = await run_in_threadpool(exchange_github_code, code)

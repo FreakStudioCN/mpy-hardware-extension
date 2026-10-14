@@ -19,8 +19,7 @@ from app.auth import get_current_user
 from app.tool_registry import LLM_TOOL_NAMES  # noqa: F401 - re-exported: tests read routes_llm.LLM_TOOL_NAMES
 
 # Pure-move extraction (Phase B). These names are re-exported here because
-# (a) tests monkeypatch routes_llm.<name> and (b) web_recommend imports
-# _call_deepseek_plain from this module. routes_llm remains the namespace of
+# tests monkeypatch routes_llm.<name>. routes_llm remains the namespace of
 # record; the extracted modules resolve patched siblings back through it.
 from app.prompt_assembly import (  # noqa: F401
     _BOARDS_DIR, _CONTEXT_BOARD_ID_RE, _SKILL_BOARDS_DIR, _V0_PHASE_NOTES_DIR,
@@ -40,7 +39,7 @@ from app.prompt_assembly import (  # noqa: F401
 )
 from app.sse_translate import (  # noqa: F401
     DeepSeekProvider, OpenAIProvider, UpstreamError, _PAYLOAD_VALIDATORS,
-    _call_deepseek_plain, _deepseek_payload, _deepseek_tools,
+    _deepseek_payload, _deepseek_tools,
     _noncanonical_tools, _open_deepseek_stream, _open_upstream, _payload_violation, _sse,
     _stub_sse, _translate_deepseek_stream, get_llm_provider,
     llm_provider_configured,

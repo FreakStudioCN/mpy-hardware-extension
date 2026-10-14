@@ -4,6 +4,12 @@ Everything the ops owner needs to run the **plugin / VS Code extension backend**
 behind an existing Caddy reverse proxy  -  no host-level code, no `:80/:443` grab. This is the
 Caddy-based counterpart to [DEPLOY.md](../DEPLOY.md) (which covers the Render Blueprint).
 
+> **Production today:** `mpyhw-api` runs as one service inside the ops owner's existing
+> `/srv/upypi/compose.yml` (alongside `db`, `upypi`, `caddy` and the mpos services), and
+> `.github/workflows/publish-image.yml` redeploys only that service. `compose.yml` here is the
+> original standalone handoff, not that file: do not merge its top-level `name:` or `networks:`
+> into the shared stack.
+
 ## What's here
 
 | File | Purpose |
@@ -47,10 +53,9 @@ Uncomment these **two** lines in the `environment:` block of `compose.yml`, then
 
 Keep `DEEPSEEK_API_KEY` in place - **rollback is re-commenting those two lines and `up -d` again**, with no key to re-fetch.
 
-Two things NOT to do:
+One thing NOT to do:
 
-- **Do not set `MPYHW_LLM_MODEL`.** Each provider carries its own defaults (`gpt-5.6-luna` for codegen, and a separate cheaper model for the `/v1/web/recommend` extraction). A model id left over from the other provider makes every request 400. Changing which model runs in production is a one-line code change that ships through the normal deploy, so it does not need an edit on this host.
-- **Do not set `MPYHW_WEB_RECOMMEND_MAX_TOKENS`.** Its default follows the provider, because the right budget depends on whether that provider's small model reasons. Pinning it to the other provider's value makes `/v1/web/recommend` return 503 with empty content.
+- **Do not set `MPYHW_LLM_MODEL`.** Each provider carries its own default model (`gpt-5.6-luna` for OpenAI). A model id left over from the other provider makes every request 400. Changing which model runs in production is a one-line code change that ships through the normal deploy, so it does not need an edit on this host.
 
 A missing or wrong key never degrades silently - the request fails loudly and `/v1/health` reports `llm_configured: false`.
 

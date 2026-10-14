@@ -1,4 +1,11 @@
 # compose.yml - self-contained stack for mpyhw-api (the plugin / VS Code extension backend)
+#
+# NOT THE PRODUCTION FILE. This is the standalone stack originally handed to the ops owner.
+# Production runs `mpyhw-api` as one service inside HIS /srv/upypi/compose.yml (services
+# db, mpyhw-api, upypi, caddy, plus mpos-*), with Caddy in the same stack and no `networks:`.
+# Never paste this file's top-level `name:` (orphans every container in his stack) or its
+# `networks:` (Caddy can no longer resolve the service) into that file. CD only touches the
+# `mpyhw-api` service there (see .github/workflows/publish-image.yml).
 # behind an EXISTING Caddy reverse proxy. Everything is in THIS ONE FILE - no separate .env.
 #
 # Constraints (from the ops owner):

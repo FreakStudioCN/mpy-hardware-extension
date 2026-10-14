@@ -70,19 +70,38 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    runs-on: [self-hosted, Linux, X64, upypi]
+    # Single label, matching mpos's deploy job (micropythonos-ai-app-builder publish-image.yml)
+    # on the same host. Labels only route; what limits the runner is where it is registered.
+    # SECURITY (red line): this runner sits on the production host. Never add `pull_request` /
+    # `pull_request_target` triggers to this workflow, and never check out or run repo code here.
+    runs-on: upypi
     needs: image
+    # A dispatch from any other branch would ship that branch's image to production.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    timeout-minutes: 30
     steps:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      # A hung pull never returns, so retries need a per-attempt bound (exit 124 -> retry).
       - name: Pull image by digest
-        run: docker pull ghcr.io/freakstudiocn/mpyhw-api@${{ needs.image.outputs.digest }}
+        run: |
+          ok=""
+          for attempt in 1 2 3 4 5 6; do
+            rc=0
+            timeout 180 docker pull ghcr.io/freakstudiocn/mpyhw-api@${{ needs.image.outputs.digest }} || rc=$?
+            if [ "$rc" = 0 ]; then ok=1; break; fi
+            echo "pull attempt ${attempt} failed (rc=${rc})"
+            sleep 10
+          done
+          [ -n "$ok" ] || { echo "pull failed after 6 attempts" >&2; exit 1; }
 
       - name: Tag as latest for compose
         run: docker tag ghcr.io/freakstudiocn/mpyhw-api@${{ needs.image.outputs.digest }} ghcr.io/freakstudiocn/mpyhw-api:latest
 
+      # SHARED STACK: /srv/upypi/compose.yml also runs upypi, caddy and the mpos services.
+      # Scope every compose call to mpyhw-api; never --remove-orphans, never `down`.
       - name: Deploy with compose
         run: |
           cd /srv/upypi
-          docker compose up -d
+          timeout 300 docker compose up -d mpyhw-api
