@@ -27,21 +27,17 @@ logger = logging.getLogger("mpyhw.request")
 _startup_log = logging.getLogger("mpyhw.startup")
 
 _DEFAULT_CORS_ORIGINS = [
-    # Production site: recommend-widget CORS fix (2a1f243) + browser-IDE OAuth
-    # redirect target (routes_auth.py default, render.yaml MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS).
+    # Production site: browser-IDE OAuth redirect target (routes_auth.py default,
+    # render.yaml MPYHW_BROWSER_AUTH_REDIRECT_ORIGINS).
     "https://block-less.com",
-    "https://www.block-less.com",  # www variant of the above; asserted by test_web_recommend_routes.py
+    "https://www.block-less.com",  # www variant of the above
     # NOTE: "https://blockless.co" / "https://www.blockless.co" removed 2026-07-03: DNS NXDOMAIN
     # (domain unregistered), no references in live frontend; only citation was a same-commit test.
     "http://localhost:3000",  # local web dev
     "http://127.0.0.1:3000",  # local web dev
 ]
 _BODY_LIMITS = {
-    "/v1/web/recommend": 4096,
     "/v1/web/events": 2048,
-    "/v1/web/newsletter": 1024,
-    "/v1/web/uploads": 12288,
-    "/v1/web/quotes": 4096,
 }
 
 

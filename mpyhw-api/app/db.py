@@ -218,17 +218,9 @@ def _schema() -> list[str]:
             repair_count INTEGER NOT NULL DEFAULT 0
         )
         """,
-        # Website marketing data — deliberately separate from telemetry_events (which
-        # is the in-product agent funnel keyed by trace_id). Captured by the anonymous
-        # /v1/web/newsletter and /v1/web/events endpoints; see app/web_store.py.
-        """
-        CREATE TABLE IF NOT EXISTS newsletter_subscribers (
-            email TEXT PRIMARY KEY,
-            locale TEXT,
-            source TEXT,
-            created_at TEXT NOT NULL
-        )
-        """,
+        # Session-independent product events — deliberately separate from telemetry_events
+        # (the in-product agent funnel keyed by trace_id). Captured by the anonymous
+        # /v1/web/events endpoint; see app/web_store.py.
         """
         CREATE TABLE IF NOT EXISTS web_events (
             id BIGSERIAL PRIMARY KEY,
@@ -239,39 +231,11 @@ def _schema() -> list[str]:
             created_at TEXT NOT NULL
         )
         """,
-        """
-        CREATE TABLE IF NOT EXISTS web_recipe_uploads (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            email TEXT,
-            summary TEXT,
-            recipe_json JSONB NOT NULL,
-            locale TEXT,
-            source TEXT,
-            created_at TEXT NOT NULL
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS web_quote_requests (
-            id TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            recipe_slug TEXT,
-            recipe_title TEXT,
-            goal TEXT,
-            quantity TEXT,
-            notes TEXT,
-            locale TEXT,
-            source TEXT,
-            created_at TEXT NOT NULL
-        )
-        """,
         "CREATE INDEX IF NOT EXISTS idx_telemetry_trace ON telemetry_events(trace_id)",
         "CREATE INDEX IF NOT EXISTS idx_telemetry_type ON telemetry_events(event_type)",
         "CREATE INDEX IF NOT EXISTS idx_llm_turns_user ON llm_turns(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_web_events_type ON web_events(event_type)",
-        "CREATE INDEX IF NOT EXISTS idx_web_recipe_uploads_email ON web_recipe_uploads(email)",
-        "CREATE INDEX IF NOT EXISTS idx_web_quote_requests_email ON web_quote_requests(email)",
         # Client attribution columns. The CREATE TABLE above only covers a fresh DB; an
         # existing prod telemetry_events needs these added idempotently on boot (additive,
         # matching the CREATE-IF-NOT-EXISTS posture — see DEPLOY.md).

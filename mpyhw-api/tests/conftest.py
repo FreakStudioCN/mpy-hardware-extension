@@ -58,7 +58,6 @@ def _truncate_postgres():
                 llm_turns,
                 sessions,
                 users,
-                newsletter_subscribers,
                 web_events
             RESTART IDENTITY CASCADE
             """,
