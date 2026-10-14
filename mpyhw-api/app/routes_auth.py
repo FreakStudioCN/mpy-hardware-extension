@@ -25,7 +25,7 @@ _CODE_TTL_SECONDS = 5 * 60
 # the full TTL. Pending states are inserted in expiry order (fixed TTL), so the first key is
 # always the oldest; evicting it only costs that visitor a retry of the login.
 _MAX_PENDING_STATES = 1000
-_states_lock = threading.Lock()  # sync route: runs on the threadpool
+_states_lock = threading.Lock()  # guards every _oauth_states mutation (start runs on the threadpool)
 
 
 def _now() -> float:
@@ -34,9 +34,10 @@ def _now() -> float:
 
 def _cleanup() -> None:
     now = _now()
-    for key, value in list(_oauth_states.items()):
-        if float(value.get("expires_at", 0)) < now:
-            _oauth_states.pop(key, None)
+    with _states_lock:
+        for key, value in list(_oauth_states.items()):
+            if float(value.get("expires_at", 0)) < now:
+                _oauth_states.pop(key, None)
     for key, value in list(_browser_codes.items()):
         if float(value.get("expires_at", 0)) < now:
             _browser_codes.pop(key, None)
@@ -157,7 +158,8 @@ def auth_github_start(redirect_uri: str = Query(...)):
 @router.get("/v1/auth/github/callback")
 async def auth_github_callback(code: str = Query(...), state: str = Query(...)):
     _cleanup()
-    state_payload = _oauth_states.pop(state, None)
+    with _states_lock:
+        state_payload = _oauth_states.pop(state, None)
     if not state_payload:
         raise HTTPException(status_code=400, detail={"error": "invalid_oauth_state"})
     access_token = await run_in_threadpool(exchange_github_code, code)
