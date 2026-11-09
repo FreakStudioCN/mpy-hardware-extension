@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT45(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht45_driver/0.0.0+auto.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "deinit",
+    "heat_time",
+    "heater_power",
+    "measurements",
+    "reset",
+    "temperature_precision"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

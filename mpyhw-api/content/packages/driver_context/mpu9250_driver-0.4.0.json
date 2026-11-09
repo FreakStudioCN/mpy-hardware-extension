@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AK8963(i2c)",
+    "MPU6500(i2c)",
+    "MPU9250(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mpu9250.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mpu9250",
+    "ak8963",
+    "mpu6500"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpu9250_driver/0.4.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "adjustement",
+    "calibrate",
+    "const",
+    "deinit",
+    "get_offset",
+    "get_scale",
+    "gyro",
+    "magnetic",
+    "whoami"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

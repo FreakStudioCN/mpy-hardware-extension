@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BNO055(i2c)",
+    "BNO055_BASE(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bno055.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bno055",
+    "bno055_base"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bno055_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "cal_status",
+    "calibrated",
+    "config",
+    "deinit",
+    "external_crystal",
+    "iget",
+    "mode",
+    "orient",
+    "reset",
+    "scaled_tuple",
+    "sensor_offsets",
+    "set_offsets"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

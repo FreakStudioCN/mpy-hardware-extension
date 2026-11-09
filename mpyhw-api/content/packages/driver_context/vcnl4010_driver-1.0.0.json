@@ -1,0 +1,39 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VCNL4010(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vcnl4010.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "vcnl4010"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vcnl4010_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "ambient",
+    "ambient_light_average",
+    "ambient_light_rate",
+    "deinit",
+    "irl_led_current",
+    "proximity",
+    "proximity_rate"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}
