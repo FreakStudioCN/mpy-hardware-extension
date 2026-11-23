@@ -1,525 +1,213 @@
-# Blockless
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-<a id="en"></a>
-**English** · [中文](#zh)
+<div align="center">
 
-Blockless turns a one-sentence natural-language hardware idea into a MicroPython project. You describe what you want to build, and the AI agent inside the VS Code extension selects components, generates a project manifest, derives the wiring, generates firmware, audits the code, and — after you confirm — deploys it to a connected MicroPython board.
+# MPY Hardware Extension
 
-This repo contains both halves of the product:
+**An open-source VS Code extension for MicroPython hardware development.**
 
-- `mpyhw-api/`: the FastAPI backend — auth, credits, package/catalog content, skill loading, telemetry, and streaming LLM generation.
-- `mpy-hardware-extension/`: the VS Code extension and its webview UI.
+Board knowledge, peripheral drivers, wiring, and AI-assisted firmware development in the Blockless workbench.
 
-## Current status
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.90%2B-007ACC.svg)](mpy-hardware-extension/package.json)
+[![MicroPython](https://img.shields.io/badge/Target-MicroPython-2B2728.svg)](mpyhw-api/content/boards)
+[![TypeScript](https://img.shields.io/badge/Extension-TypeScript-3178C6.svg)](mpy-hardware-extension/src)
 
-- The local end-to-end dev workflow is working.
-- The backend runs at `https://blockless.upypi.net` (container on the ops owner's host, shipped by `.github/workflows/publish-image.yml`; see `mpyhw-api/deploy/README.md`); you can also keep running it locally (below).
-- The extension is packaged with `@vscode/vsce`.
-- Real on-device flashing is still a separate verification track; the current automated tests use a mocked/shimmed device flow.
+</div>
 
-## Prerequisites
+![Blockless hardware workbench and board catalog](docs/assets/readme/board-catalog.png)
 
-- Python 3.10+
-- Node.js 22+
-- Docker Desktop
-- VS Code 1.90+
-- Windows PowerShell
+*The shipped VS Code webview rendered locally with the repository's six board profiles. This is a catalog/UI preview without a live backend or connected device; it does not represent a successful deployment.*
 
-## Get the code and install dependencies
+## Contents
 
-This repo pulls the source of truth for skills and drivers via git submodules (`third_party/MicroPython_Skills`, `third_party/GraftSense-Drivers-MicroPython`) — both backend skill loading and extension packaging depend on them, and things fail outright if they are missing. Always clone with submodules:
+[Overview](#overview) · [Features](#key-features) · [Architecture](#architecture) · [Hardware support](#supported-boards-and-peripherals) · [Installation](#installation) · [Quick start](#quick-start) · [Configuration](#extension-configuration) · [Development](#development) · [License](#license)
 
-```powershell
-git clone --recurse-submodules <repo-url>
-# Already cloned without submodules?
-git submodule update --init --recursive
+## Overview
+
+MPY Hardware Extension is the VS Code part of **Blockless — MicroPython Hardware Builder**. Describe a hardware project, review its components and board, inspect the proposed wiring, generate firmware, and deploy through the local device helper when the setup is ready.
+
+This monorepo contains the extension/webview in `mpy-hardware-extension/`, a FastAPI service in `mpyhw-api/`, reusable skill and driver submodules, and a separate installer workspace. Hardware facts and inspectable project artifacts guide the workflow alongside model-generated code.
+
+## Key features
+
+| Area | Implemented tools |
+| --- | --- |
+| Hardware-aware planning | Board selection, component review, capability matching, project manifests |
+| Pins and interfaces | Curated pin capabilities, recommendations, reserved pins, and logic-voltage notes |
+| Wiring and architecture | Wiring derived from device/manifest data; a planned architecture view, distinct from a reverse-engineered code graph |
+| Drivers and packages | Curated driver contexts, source metadata, device package tools, and a missing-driver generation workflow |
+| Code generation | Skill-driven project generation, artifact inspection, static code checks, and iterative workflow events |
+| Environment diagnosis | Doctor checks for Python, dependencies, board connection, and MicroPython |
+| Device workflow | Serial helper, deployment checkpoint, device files, package installation, and serial output |
+| Project continuity | Session records, artifact browser, version saving, and read-only Git history |
+
+Real-board acceptance remains a separate verification step. Mock/shim tests and a successful code build cannot prove that every supported board/peripheral combination works physically.
+
+## Why hardware-aware development matters
+
+A valid Python expression says little about a board's flash-reserved pins, input-only GPIOs, bus assignments, or 3.3 V logic limits. This project keeps board metadata and driver context alongside the generated manifest so developers can inspect the physical assumptions before connecting and running hardware.
+
+The metadata is reusable: [`mpyhw-api/content/boards/`](mpyhw-api/content/boards) describes board capabilities; [`mpyhw-api/content/packages/`](mpyhw-api/content/packages) supplies driver context and provenance. The [manifest builder](mpy-hardware-extension/src/core/manifest-builder.ts) links pin roles, board recommendations, and package versions. Coverage depends on those records and still needs hardware verification.
+
+For example, the ESP32 DevKit V1 profile recommends GPIO21 for I2C SDA and GPIO22 for I2C SCL, marks GPIO34 as input-only, and reserves GPIO6–GPIO11 for the flash bus. These are board-profile facts to review, not a universal wiring recipe.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Developer idea] --> W[VS Code webview]
+    W <--> E[TypeScript extension host]
+    E <--> A[FastAPI backend]
+    A --> C[Board and driver catalog]
+    A --> S[Pinned workflow skills]
+    A --> L[Configured model provider]
+    E --> M[Project manifest and generated files]
+    M --> V[Wiring and planned architecture views]
+    E --> G[Deployment checkpoint]
+    G --> P[Local Python device helper]
+    P <--> B[MicroPython board over USB / serial]
+    B --> O[Serial output and observed hardware behavior]
 ```
 
-Backend Python dependencies (a venv is recommended):
+| Directory | Responsibility |
+| --- | --- |
+| [`mpy-hardware-extension/src/extension/`](mpy-hardware-extension/src/extension) | VS Code host, identity, environment, device and session integration |
+| [`mpy-hardware-extension/src/core/`](mpy-hardware-extension/src/core) | Workflow, manifests, code checks, wiring and protocol logic |
+| [`mpy-hardware-extension/src/webview/`](mpy-hardware-extension/src/webview) | Workbench, board selector, artifacts, serial and environment UI |
+| [`mpy-hardware-extension/python/shim/`](mpy-hardware-extension/python/shim) | Local board communication helper |
+| [`mpyhw-api/`](mpyhw-api) | Authentication, catalog, credits, skill loading, generation and streaming |
+| [`third_party/`](third_party) | Pinned MicroPython skills and GraftSense drivers |
+| [`blockless-installer/`](blockless-installer) | Separate Rust installer workspace |
 
-```powershell
-cd mpyhw-api
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cd ..
-```
+## Supported boards and peripherals
 
-Extension dependencies:
+These six boards have checked-in pin-aware profiles:
 
-```powershell
+| Board family | Profile |
+| --- | --- |
+| ESP32 DevKit V1 / WROOM-32 | [ESP32](mpyhw-api/content/boards/esp32-devkit-v1.json) |
+| ESP32-S3 DevKitC-1 | [ESP32-S3](mpyhw-api/content/boards/esp32-s3-devkitc-1.json) |
+| ESP32-C3 DevKitM-1 | [ESP32-C3](mpyhw-api/content/boards/esp32-c3-devkitm-1.json) |
+| ESP8266 NodeMCU | [ESP8266](mpyhw-api/content/boards/esp8266-nodemcu.json) |
+| Raspberry Pi Pico | [Pico](mpyhw-api/content/boards/raspberry-pi-pico.json) |
+| Raspberry Pi Pico W | [Pico W](mpyhw-api/content/boards/rpi-pico-w.json) |
+
+The board browser can expose additional official or vendor records. A firmware download entry alone does not imply a complete local pin layout or tested peripheral support.
+
+The driver catalog includes sensors, displays, lighting, communication, and other peripheral categories. Check a package's interfaces, version, pin roles, and original license rather than assuming all catalog entries are compatible with every board. See the [real-board acceptance checklist](docs/real-board-acceptance.md).
+
+## Installation
+
+You need VS Code **1.90+**, Python **3.10+** on PATH, and a network connection for authentication, generation, and required firmware/driver downloads. Install the USB-serial driver appropriate for your board on Windows.
+
+Install a provided `.vsix` with **Extensions → Install from VSIX…**. To build one from source, use Node.js **22+**:
+
+```sh
+git clone --recurse-submodules https://github.com/FreakStudioCN/mpy-hardware-extension.git
 cd mpy-hardware-extension
-npm install
-cd ..
+git submodule update --init --recursive
+cd mpy-hardware-extension
+npm ci
+npm run package
+code --install-extension build/mpy-hardware-extension.vsix
 ```
 
-## Run the local stack
+The repeated directory name is intentional: the extension package lives inside the monorepo. Both submodules are required for skill loading and packaging. See [extension packaging](docs/vscode-extension-publish-flow.md) for the maintained distribution workflow.
 
-Copy the template `mpyhw-api/.env.example` to `mpyhw-api/.env`, then fill in values as needed:
+## Quick start
+
+1. Open the **Blockless** view in VS Code, or run **Blockless: Open Panel**.
+2. Sign in with GitHub when prompted for the configured service.
+3. Open **Env** and review Python, dependencies, device, and MicroPython checks.
+4. Choose a board, or keep **Recommend**, then describe a small project.
+5. Review the component and plan checkpoints. Check the proposed pins, power, and wiring against the actual hardware.
+6. Inspect generated files, **Wiring**, and **Diagram**. The diagram describes the proposed project structure.
+7. Connect the board, review the deployment checkpoint, and run the device flow. Inspect serial output and the real device to establish the result.
+
+The extension prepares a local tool environment on first use. If environment setup or board detection fails, follow Doctor's diagnostic output before trying deployment again.
+
+## Usage examples
+
+Start with a small, observable requirement:
+
+> Blink the onboard LED once per second on my Raspberry Pi Pico.
+
+Then add hardware context:
+
+> Read an AHT20 temperature sensor over I2C and show the reading in the serial monitor. Use my selected ESP32 board.
+
+These are example prompts, not prevalidated reference circuits. Confirm that the matching driver context exists, review the generated bus/pin assignments, and verify the output on your own board. New board profiles and driver contexts should include provenance, interface constraints, and reproducible examples.
+
+## Extension configuration
+
+These settings are **machine-scoped**: set them in VS Code User/Remote settings.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `mpyhw.apiBaseUrl` | Empty | Use the configured hosted service, or override with a self-hosted backend URL |
+| `mpyhw.pythonPath` | Empty | Developer override for the fallback runner's Python |
+| `mpyhw.pipIndexUrl` | Empty | Developer override for fallback dependency installation |
+| `mpyhw.autoOpenPanel` | `false` | Open the workbench when VS Code starts |
+
+Example User settings for local backend development:
+
+```json
+{
+  "mpyhw.apiBaseUrl": "http://127.0.0.1:8787",
+  "mpyhw.autoOpenPanel": true
+}
+```
+
+Prompts and generated code pass through the configured backend/model provider. Review the service configuration before using private designs; keep API keys and device/session data out of commits.
+
+## Development
+
+Backend development uses Python 3.10+, PostgreSQL, and the checked-in dependency files. The Windows convenience launcher also needs Docker Desktop and PowerShell.
+
+From the repository root:
 
 ```powershell
+python -m venv mpyhw-api/.venv
+mpyhw-api/.venv/Scripts/python -m pip install -r mpyhw-api/requirements.txt
 Copy-Item mpyhw-api/.env.example mpyhw-api/.env
-```
-
-The template ships with working local defaults; you only need to replace `DEEPSEEK_API_KEY` with your own real key (no key? use stub mode below and leave it blank). A typical `.env` looks like:
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/mpyhw
-MPYHW_JWT_SECRET=dev-local-secret-change-me
-MPYHW_ADMIN_TOKEN=dev-admin-token
-DEEPSEEK_API_KEY=sk-...
-MPYHW_LLM_MODEL=deepseek-chat
-```
-
-Start the local backend (real LLM):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/dev-up.ps1
-```
-
-With no real LLM key, use stub mode (a stub LLM, no key needed):
-
-```powershell
+# Configure local secrets in the ignored .env. For a deterministic backend stub:
 $env:MPYHW_LLM_STUB = "1"
 powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/dev-up.ps1
-```
-
-`dev-up.ps1` reads `mpyhw-api/.env`, starts or reuses a `postgres:16` Docker container, waits for Postgres to be ready, then brings the API up as a **detached background daemon** (bound to `127.0.0.1:8787`, logs at `mpyhw-api/tmp/api.log`). The daemon is launched via WMI and is not attached to the VS Code process tree, so **fully quitting VS Code will not kill it**; the script returns as soon as it is up and does not hold the terminal.
-
-Afterwards, manage the backend with `api-daemon.ps1` (you must restart after changing backend Python code — uvicorn has no `--reload`):
-
-```powershell
-# actions: start | stop | restart | status | logs
-powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/api-daemon.ps1 restart
-```
-
-> The Postgres container `mpyhw-pg` lives independently of the daemon; after a full machine reboot, run `docker start mpyhw-pg` first (or re-run `dev-up.ps1`).
-
-Health checks:
-
-```powershell
 Invoke-RestMethod http://127.0.0.1:8787/v1/health
 Invoke-RestMethod http://127.0.0.1:8787/v1/health/ready
 ```
 
-Expected responses:
+Stub mode exercises the development flow and does not provide real model generation. Restart the daemon after backend changes; see [backend operations](mpyhw-api/deploy/README.md). For the extension:
 
-```json
-{"status":"ok"}
-{"status":"ok","db":"ok"}
-```
-
-## Run the tests
-
-Backend tests need a real Postgres URL. If your local dev server (uvicorn) is connected to the same database, the `TRUNCATE` the tests use to clear tables will deadlock against it — point the tests at a separate database, kept apart from the dev one:
-
-```powershell
-docker exec mpyhw-pg createdb -U postgres mpyhw_test   # first time only; ignore the error if it already exists
-$env:MPYHW_TEST_DATABASE_URL = "postgresql://postgres:<password from DATABASE_URL>@127.0.0.1:55432/mpyhw_test"
-```
-
-Do not inherit a real `DEEPSEEK_API_KEY` into the test process, and do not set `MPYHW_LLM_STUB`: one test specifically verifies that an unconfigured upstream returns 503, and either of those would make it fail.
-
-```powershell
-cd mpyhw-api
-python -m pytest -q
-```
-
-All tests should pass.
-
-Extension tests:
-
-```powershell
+```sh
 cd mpy-hardware-extension
 npm test
-```
-
-All tests should pass (a few that spawn a Python subprocess are skipped in a restricted sandbox — see below).
-
-Some extension tests start a Python subprocess. If you see `spawn EPERM`, the current sandbox is blocking subprocess launch; re-run in a normal terminal or with approved permissions.
-
-Or run the whole extension baseline (build, typecheck, TS tests, Python shim tests, and every plugin smoke suite) in one command:
-
-```powershell
-cd mpy-hardware-extension
-npm run baseline
-```
-
-It prints the Node/npm/Python/mpremote versions first, runs each step with its own timeout, ignores stdin for the plugin smoke so it cannot hang on an interactive terminal, and on any failure prints the command, working directory, duration, exit code, and an output tail. It exits non-zero if any step fails. The Python steps need a local venv with the shim deps (once):
-
-```powershell
-python -m venv .venv
-.venv\Scripts\pip install -r python\shim\requirements.txt   # macOS/Linux: .venv/bin/pip install -r python/shim/requirements.txt
-```
-
-## Run the extension in VS Code (dev mode, recommended)
-
-Day-to-day extension iteration does not need a VSIX every time. The repo root is set up for F5 debugging:
-
-1. First bring up the local backend with `dev-up.ps1` as above.
-2. Open the repo **root** in VS Code and press `F5` (the "Run Blockless Extension (dev)" debug config) to launch the Extension Development Host.
-3. The webview frontend is read at runtime directly from `mpy-hardware-extension/src/webview/index.html`; edit it and reopen the Host to see changes — no packaging involved.
-
-Only when you need to verify the "installed artifact" or distribute externally do you need the VSIX flow below.
-
-## Test against the cloud backend (no local backend)
-
-When you only want to verify the "local extension × deployed cloud backend" path, you do not need Docker/Postgres/a local backend. The extension's backend address is set by the `mpyhw.apiBaseUrl` setting (then the `MPYHW_API_BASE` env var), and defaults to the hosted address `https://blockless.upypi.net`.
-
-With Claude Code, just run `/cloud-test` (defined in `.claude/skills/cloud-test/`):
-
-```text
-/cloud-test            # switch to cloud + health check + load the extension (F5, default)
-/cloud-test reinstall  # same, but package a VSIX and install it into your everyday VS Code
-/cloud-test restore    # switch back to local 127.0.0.1:8787 when you are done
-```
-
-Manual equivalent: the cloud is already the default, so just make sure no local override points elsewhere — for F5, clear any `MPYHW_API_BASE` in `.vscode/launch.json`'s `env`; for an installed VSIX, unset the `MPYHW_API_BASE` env var (and any User-level `mpyhw.apiBaseUrl`). (`mpyhw.apiBaseUrl` is `scope: machine`, so a workspace `.vscode/settings.json` no longer overrides it.)
-
-`/cloud-test` probes the cloud `/v1/health` before starting a session and diffs the cloud `/v1/tools` against the local `contracts/canonical_tools.json`, heading off two common errors: an unreachable backend ("Cannot reach the auth API") and tool-contract drift ("tool_registry_mismatch").
-
-> The cloud is a real backend: it requires GitHub sign-in, consumes credits, and calls real DeepSeek. To return to local full-stack dev, switch back with `/cloud-test restore` and bring up the local backend with `dev-up.ps1` (or `/dev-up`).
-
-## Build and package the extension
-
-```powershell
-cd mpy-hardware-extension
-npm install
-npm run build
+npm run typecheck
 npm run package
 ```
 
-`npm run package` runs `scripts/prepare-vsce.mjs`, which:
+Backend tests require a **separate test database**; see [development notes](docs/development.md). No full-stack or hardware test result is implied by this README.
 
-- bundles `src/extension/activate.ts` into `dist/extension/activate.cjs`;
-- vendors the subset of the `third_party/MicroPython_Skills` toolchain the VSIX needs at runtime into the extension package;
-- writes the VSIX to `mpy-hardware-extension/build/`.
+## Documentation and contributing
 
-The hosted backend the extension connects to by default is:
+- [Local development and focused validation](docs/development.md)
+- [Real-board acceptance](docs/real-board-acceptance.md)
+- [Extension packaging](docs/vscode-extension-publish-flow.md)
+- [Board profiles](mpyhw-api/content/boards), [driver context](mpyhw-api/content/packages), and [workflow contracts](contracts)
+- [Screenshot provenance](docs/assets/readme/README.md) and [third-party notices](THIRD_PARTY_NOTICES.md)
 
-```text
-https://blockless.upypi.net
-```
+Contributions to board metadata, driver contexts, wiring validation, diagnostics, and reproducible device examples are welcome. Include the board/firmware version and redacted logs in bug reports. Distinguish generated proposals, mocked results, and real-board measurements.
 
-> This hosted backend is live (see `mpyhw-api/DEPLOY.md`); after installing the VSIX it connects there by default, and you can verify "local extension × cloud backend" in one step with `/cloud-test`. To point it at a locally-run backend instead, override the VS Code setting `mpyhw.apiBaseUrl`, or set an env var:
+## Related projects
 
-```powershell
-$env:MPYHW_API_BASE = "http://127.0.0.1:8787"
-```
+| Project | Focus |
+| --- | --- |
+| [MicroPythonOS AI App Builder](https://github.com/FreakStudioCN/micropythonos-ai-app-builder) | Natural-language MicroPythonOS apps, browser preview, MPK packaging and deployment |
+| [AI Agent Embedded Device Debugging Kit](https://github.com/FreakStudioCN/ai-agent-embedded-debugging-kit) | Agent observation, physical control and testing of real embedded hardware |
 
-## Install the local VSIX
+The projects are independently maintained. Shared interests and resources do not imply a complete integration between their software stacks.
 
-```powershell
-cd mpy-hardware-extension
-code --install-extension build/mpy-hardware-extension-0.3.9.vsix --force
-```
+## License
 
-> The version number follows `version` in `mpy-hardware-extension/package.json`; the packaged filename changes with it.
-
-After reinstalling a freshly built VSIX, a full quit and restart of VS Code is recommended. A `Reload Window` alone is often not enough to pick up extension-host/module changes.
-
-## Backend deployment
-
-Production is `https://blockless.upypi.net`: the `mpyhw-api` service inside the ops owner's existing compose stack, behind his Caddy. Every push to `main` (and every `v*` tag) builds `ghcr.io/freakstudiocn/mpyhw-api` and deploys it through the self-hosted `upypi` runner (`.github/workflows/publish-image.yml`). Container and env details: `mpyhw-api/deploy/README.md`.
-
-The Render Blueprint (`render.yaml`, `mpyhw-api/DEPLOY.md`) is the previous host; that service is suspended.
-
-On production startup the backend validates the required secrets. If any are missing or still set to dev defaults, the backend fails to start, preventing a misconfigured deploy from going live.
-
-## Directory layout
-
-```text
-.
-|-- mpyhw-api/                  FastAPI backend
-|   |-- app/                    routes, auth, credits, DB, LLM, telemetry
-|   |-- content/                boards, packages, driver context catalog
-|   |-- scripts/                dev-up, ingestion, catalog tools
-|   |-- tests/                  backend pytest tests
-|   |-- Dockerfile
-|   `-- DEPLOY.md
-|-- mpy-hardware-extension/     VS Code extension
-|   |-- src/                    extension host, core loop, webview
-|   |-- python/shim/            mpremote/serial device helper process
-|   |-- scripts/                build and VSIX preparation scripts
-|   |-- test/                   node:test tests
-|   `-- package.json
-|-- third_party/
-|   |-- MicroPython_Skills/     served skills and packaging-time toolchain scripts
-|   `-- GraftSense-Drivers-MicroPython/
-|-- content/                    package catalog mirror (generated; a fresh checkout may not have it)
-|-- docs/                       product, research, pitch, legal docs
-|-- contracts/                  shared tool contract
-`-- dev/                        raw research material and extracted reference docs
-```
-
-## Contributing notes
-
-- Keep changes surgical; this repo often has a large dirty worktree during active development.
-- Do not commit the secrets in `mpyhw-api/.env`.
-- `dist/` is a build artifact; the source of truth lives in `mpy-hardware-extension/src/`.
-- The list of skills the backend actually serves is controlled by `mpyhw-api/app/skill_catalog.py`.
-- If a served skill references a host-side script, make sure that script is either exposed through a canonical tool or bundled into the VSIX by `prepare-vsce.mjs`.
-
----
-
-<a id="zh"></a>
-# Blockless · 中文
-
-[English](#en) · **中文**
-
-Blockless 可以把一句自然语言硬件想法变成一个 MicroPython 项目。你描述想做什么，VS Code 扩展里的 AI agent 会选择器件、生成项目 manifest、推导接线、生成固件、审计代码，并在你确认后部署到连接的 MicroPython 开发板。
-
-本仓库包含产品的两部分：
-
-- `mpyhw-api/`：FastAPI 后端，负责认证、积分、包/目录内容、skill 加载、遥测和 LLM 流式生成。
-- `mpy-hardware-extension/`：VS Code 扩展和 webview 用户界面。
-
-## 当前状态
-
-- 本地端到端开发流程已可用。
-- 后端运行在 `https://blockless.upypi.net`（ops owner 主机上的容器，由 `.github/workflows/publish-image.yml` 发布，见 `mpyhw-api/deploy/README.md`）；也可继续本地自起后端（见下文）。
-- 扩展使用 `@vscode/vsce` 打包。
-- 真板烧录验证仍是独立验证线；当前自动化测试使用 mock/shim 的设备流程。
-
-## 前置要求
-
-- Python 3.10+
-- Node.js 22+
-- Docker Desktop
-- VS Code 1.90+
-- Windows PowerShell
-
-## 获取代码与安装依赖
-
-本仓库通过 git submodule 引入 skill 与驱动的真相源（`third_party/MicroPython_Skills`、`third_party/GraftSense-Drivers-MicroPython`）——后端的 skill 加载和扩展打包都依赖它们，缺了会直接失败。克隆时务必带上 submodule：
-
-```powershell
-git clone --recurse-submodules <repo-url>
-# 已经克隆过、忘了带 submodule：
-git submodule update --init --recursive
-```
-
-后端 Python 依赖（建议放在 venv 里）：
-
-```powershell
-cd mpyhw-api
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-cd ..
-```
-
-扩展依赖：
-
-```powershell
-cd mpy-hardware-extension
-npm install
-cd ..
-```
-
-## 启动本地服务
-
-复制模板 `mpyhw-api/.env.example` 为 `mpyhw-api/.env`，再按需填值：
-
-```powershell
-Copy-Item mpyhw-api/.env.example mpyhw-api/.env
-```
-
-模板已带可用的本地默认值，只需把 `DEEPSEEK_API_KEY` 换成你自己的真实 key（没有 key 就用下面的 stub 模式，可不填）。`.env` 大致长这样：
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/mpyhw
-MPYHW_JWT_SECRET=dev-local-secret-change-me
-MPYHW_ADMIN_TOKEN=dev-admin-token
-DEEPSEEK_API_KEY=sk-...
-MPYHW_LLM_MODEL=deepseek-chat
-```
-
-起本地后端（真实 LLM）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/dev-up.ps1
-```
-
-没有真实 LLM key 时用 stub 模式（桩 LLM，不需要 key）：
-
-```powershell
-$env:MPYHW_LLM_STUB = "1"
-powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/dev-up.ps1
-```
-
-`dev-up.ps1` 会读取 `mpyhw-api/.env`，启动或复用 Docker 里的 `postgres:16` 容器，等待 Postgres 就绪，然后把 API 作为**脱离进程的后台守护**起起来（绑定 `127.0.0.1:8787`，日志写 `mpyhw-api/tmp/api.log`）。守护通过 WMI 启动、不挂在 VS Code 进程树下，**完全退出 VS Code 也不会被杀**；脚本起完即返回，不占终端。
-
-之后用 `api-daemon.ps1` 管理后端（改了后端 Python 代码后必须重启——uvicorn 没有 `--reload`）：
-
-```powershell
-# 动作：start | stop | restart | status | logs
-powershell -ExecutionPolicy Bypass -File mpyhw-api/scripts/api-daemon.ps1 restart
-```
-
-> Postgres 容器 `mpyhw-pg` 独立于守护存活；整机重启后先 `docker start mpyhw-pg`（或重跑 `dev-up.ps1`）。
-
-健康检查：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8787/v1/health
-Invoke-RestMethod http://127.0.0.1:8787/v1/health/ready
-```
-
-预期返回：
-
-```json
-{"status":"ok"}
-{"status":"ok","db":"ok"}
-```
-
-## 运行测试
-
-后端测试需要真实 Postgres URL。如果本地 dev 服务（uvicorn）正连着同一个库，测试清表用的 `TRUNCATE` 会和它死锁——给测试单独指一个库，和 dev 库分开：
-
-```powershell
-docker exec mpyhw-pg createdb -U postgres mpyhw_test   # 仅首次；如果已存在可忽略报错
-$env:MPYHW_TEST_DATABASE_URL = "postgresql://postgres:<DATABASE_URL 里的密码>@127.0.0.1:55432/mpyhw_test"
-```
-
-不要把真实 `DEEPSEEK_API_KEY` 继承进测试进程，也不要设 `MPYHW_LLM_STUB`：测试里有一个用例专门验证“未配置上游时返回 503”，这两者都会让它失败。
-
-```powershell
-cd mpyhw-api
-python -m pytest -q
-```
-
-全部用例应通过。
-
-扩展测试：
-
-```powershell
-cd mpy-hardware-extension
-npm test
-```
-
-全部用例应通过（个别需要启动 Python 子进程的用例，在受限沙箱里会被跳过——见下）。
-
-部分扩展测试会启动 Python 子进程。如果看到 `spawn EPERM`，说明当前沙箱阻止了子进程启动，请在普通终端或批准权限下重跑。
-
-也可以用一条命令跑完整扩展基线（构建、类型检查、TS 测试、Python shim 测试和每个插件的冒烟）：
-
-```powershell
-cd mpy-hardware-extension
-npm run baseline
-```
-
-它会先打印 Node/npm/Python/mpremote 版本，每一步都有独立超时，插件冒烟忽略 stdin 因此在交互式终端里不会卡住；任一步失败时会打印命令、工作目录、耗时、退出码和输出尾部，只要有一步失败就以非零码退出。Python 步骤需要一个带 shim 依赖的本地 venv（一次即可）：
-
-```powershell
-python -m venv .venv
-.venv\Scripts\pip install -r python\shim\requirements.txt   # macOS/Linux: .venv/bin/pip install -r python/shim/requirements.txt
-```
-
-## 在 VS Code 里运行扩展（开发模式，推荐）
-
-日常迭代扩展不必每次打 VSIX。仓库根目录已配好 F5 调试：
-
-1. 先按上文用 `dev-up.ps1` 起好本地后端。
-2. 在仓库**根目录**用 VS Code 打开，按 `F5`（调试配置 “Run Blockless Extension (dev)”）启动 Extension Development Host。
-3. webview 前端在运行时直接读 `mpy-hardware-extension/src/webview/index.html`，改完重开 Host 即可看到，不经过打包。
-
-只有要验证“安装后的产物”或对外分发时，才需要下面的打 VSIX 流程。
-
-## 连云端后端测试（不起本地后端）
-
-只想验证「本地扩展 × 已部署的云端后端」这条线时，不必起 Docker/Postgres/本地后端。扩展的后端地址由 `mpyhw.apiBaseUrl` 设置（其次是 `MPYHW_API_BASE` 环境变量）决定，默认就是托管地址 `https://blockless.upypi.net`。
-
-用 Claude Code 时直接调 `/cloud-test`（定义在 `.claude/skills/cloud-test/`）：
-
-```text
-/cloud-test            # 切到云端 + 探活 + 加载扩展（F5，默认）
-/cloud-test reinstall  # 同上，但打 VSIX 装到日常 VS Code
-/cloud-test restore    # 测完一键切回本地 127.0.0.1:8787
-```
-
-手动等价操作：云端本就是默认地址，确保没有本地覆盖即可——F5 就清掉 `.vscode/launch.json` 里 `env` 的 `MPYHW_API_BASE`；装机版就 unset `MPYHW_API_BASE` 环境变量（及 User 级 `mpyhw.apiBaseUrl`）。（`mpyhw.apiBaseUrl` 现为 `scope: machine`，工作区 `.vscode/settings.json` 已不再能覆盖它。）
-
-`/cloud-test` 会在开会话前先探活云端 `/v1/health`、并比对云端 `/v1/tools` 与本地 `contracts/canonical_tools.json`，提前挡掉两个常见错误：后端不可达（“Cannot reach the auth API”）和工具契约漂移（“tool_registry_mismatch”）。
-
-> 云端是真后端：需要 GitHub 登录、消耗 credits、走真实 DeepSeek。要回到本地全栈开发，用 `/cloud-test restore` 切回，再配合 `dev-up.ps1`（或 `/dev-up`）起本地后端。
-
-## 构建和打包扩展
-
-```powershell
-cd mpy-hardware-extension
-npm install
-npm run build
-npm run package
-```
-
-`npm run package` 会运行 `scripts/prepare-vsce.mjs`，它会：
-
-- 将 `src/extension/activate.ts` 打包为 `dist/extension/activate.cjs`；
-- 将 VSIX 运行时需要的 `third_party/MicroPython_Skills` toolchain 子集 vendoring 进扩展包；
-- 将 VSIX 写入 `mpy-hardware-extension/build/`。
-
-扩展代码里默认连接的托管后端地址是：
-
-```text
-https://blockless.upypi.net
-```
-
-> 该托管后端已部署上线（见 `mpyhw-api/DEPLOY.md`）；安装 VSIX 后默认即连它，也可用 `/cloud-test` 一键验证「本地扩展 × 云端后端」。如果想改连本地自起的后端，用 VS Code 设置 `mpyhw.apiBaseUrl` 覆盖，或设置环境变量：
-
-```powershell
-$env:MPYHW_API_BASE = "http://127.0.0.1:8787"
-```
-
-## 安装本地 VSIX
-
-```powershell
-cd mpy-hardware-extension
-code --install-extension build/mpy-hardware-extension-0.3.9.vsix --force
-```
-
-> 版本号以 `mpy-hardware-extension/package.json` 的 `version` 为准；打包产物文件名会随之变化。
-
-重新安装构建后的 VSIX 后，建议完全退出并重启 VS Code。仅 `Reload Window` 往往不足以刷新 extension host/module 变更。
-
-## 后端部署
-
-生产环境是 `https://blockless.upypi.net`：ops owner 现有 compose 栈里的 `mpyhw-api` 服务，走他的 Caddy。每次 push `main`（以及每个 `v*` tag）都会构建 `ghcr.io/freakstudiocn/mpyhw-api`，并通过自托管 `upypi` runner 部署（`.github/workflows/publish-image.yml`）。容器和环境变量见 `mpyhw-api/deploy/README.md`。
-
-Render Blueprint（`render.yaml`、`mpyhw-api/DEPLOY.md`）是之前的托管方式，该服务已暂停。
-
-生产环境启动时会校验必需 secret。如果缺失或仍使用 dev 默认值，后端会直接启动失败，避免错误配置上线。
-
-## 目录结构
-
-```text
-.
-|-- mpyhw-api/                  FastAPI 后端
-|   |-- app/                    routes、auth、credits、DB、LLM、telemetry
-|   |-- content/                boards、packages、driver context catalog
-|   |-- scripts/                dev-up、ingestion、catalog 工具
-|   |-- tests/                  后端 pytest 测试
-|   |-- Dockerfile
-|   `-- DEPLOY.md
-|-- mpy-hardware-extension/     VS Code 扩展
-|   |-- src/                    extension host、core loop、webview
-|   |-- python/shim/            mpremote/serial 设备辅助进程
-|   |-- scripts/                构建和 VSIX 准备脚本
-|   |-- test/                   node:test 测试
-|   `-- package.json
-|-- third_party/
-|   |-- MicroPython_Skills/     已服务的 skills 和打包用 toolchain 脚本
-|   `-- GraftSense-Drivers-MicroPython/
-|-- content/                    package catalog mirror（生成产物，全新检出可能没有）
-|-- docs/                       产品、调研、pitch、法务文档
-|-- contracts/                  共享 tool contract
-`-- dev/                        原始调研资料和提取后的参考文档
-```
-
-## 贡献注意事项
-
-- 保持改动外科手术式；这个仓库在活跃开发时经常有较大的 dirty worktree。
-- 不要提交 `mpyhw-api/.env` 里的 secret。
-- `dist/` 是生成产物；源码真相在 `mpy-hardware-extension/src/`。
-- 后端实际服务的 skill 列表由 `mpyhw-api/app/skill_catalog.py` 控制。
-- 如果某个 served skill 引用了 host-side 脚本，必须确认该脚本要么通过 canonical tool 暴露，要么由 `prepare-vsce.mjs` 打包进 VSIX。
+Project-owned code is licensed under [MIT](LICENSE); the packaged extension carries the same text in [LICENSE.txt](mpy-hardware-extension/LICENSE.txt). The existing `blockless` copyright attribution is retained. Third-party skills, drivers, dependencies, logos, and imported documentation remain subject to their original terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

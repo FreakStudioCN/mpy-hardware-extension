@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "blockless-installer"
 version.workspace = true
 edition.workspace = true

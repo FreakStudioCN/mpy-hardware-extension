@@ -4,7 +4,7 @@
   "publisher": "blockless",
   "displayName": "Blockless — MicroPython Hardware Builder",
   "description": "Turn a sentence into a wired, deployable MicroPython hardware project.",
-  "license": "SEE LICENSE IN LICENSE.txt",
+  "license": "MIT",
   "icon": "media/icon.png",
   "type": "module",
   "categories": [
