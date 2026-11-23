@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AGS02MA(i2c)",
+    "AGS02MAAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ags02ma.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ags02ma",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ags02ma_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "debug_read_raw",
+    "debug_read_raw_async",
+    "deinit",
+    "deinit_async",
+    "firmware_version",
+    "firmware_version_async",
+    "gas_resistance",
+    "gas_resistance_async",
+    "initialize_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

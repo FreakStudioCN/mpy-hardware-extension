@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MAX30100(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_max30100_max30100.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_max30100_max30100"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max30100_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "disable_spo2",
+    "enable_spo2",
+    "enable_spo2_async",
+    "get_number_of_samples",
+    "get_part_id",
+    "get_part_id_async",
+    "get_registers",
+    "get_registers_async",
+    "get_rev_id",
+    "get_rev_id_async",
+    "i2c_write",
+    "ir",
+    "read_ir_async",
+    "read_red_async",
+    "read_sensor",
+    "read_sensor_async",
+    "red",
+    "refresh_temperature",
+    "reset",
+    "set_led_current",
+    "set_mode",
+    "set_spo_config",
+    "shutdown"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

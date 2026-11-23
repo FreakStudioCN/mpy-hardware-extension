@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MPU6886(i2c)",
+    "MPU6886Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_mpu6886_mpu6886.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_mpu6886_mpu6886",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpu6886_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "calibrate",
+    "calibrate_async",
+    "deinit",
+    "gyro",
+    "gyro_async",
+    "start_async",
+    "temperature_async",
+    "whoami",
+    "whoami_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

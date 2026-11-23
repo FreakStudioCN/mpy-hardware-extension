@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LCD(i2c)",
+    "LCDAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_lcm1602a_LCD_I2C.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_lcm1602a_LCD_I2C",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lcm1602a_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "clear",
+    "clear_async",
+    "off",
+    "off_async",
+    "on",
+    "on_async",
+    "set_cursor",
+    "set_cursor_async",
+    "start",
+    "write",
+    "write_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

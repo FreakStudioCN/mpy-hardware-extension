@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT6206(i2c)",
+    "FT6206Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ft6206.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ft6206",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft6206_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "initialize_async",
+    "irq_handler",
+    "position",
+    "position_async",
+    "read_chip_id",
+    "read_chip_id_async",
+    "read_touch",
+    "read_touch_async",
+    "service_irq_async",
+    "touched",
+    "touched_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

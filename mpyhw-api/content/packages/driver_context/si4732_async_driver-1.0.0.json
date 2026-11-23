@@ -1,0 +1,70 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SI4732(i2c)",
+    "SI4732Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_si4732_si4732.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_si4732_si4732",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si4732_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "am_tune_freq",
+    "am_tune_freq_async",
+    "command",
+    "command_async",
+    "const",
+    "deinit",
+    "deinit_async",
+    "fm_tune_freq",
+    "fm_tune_freq_async",
+    "get_int_status",
+    "get_int_status_async",
+    "get_property",
+    "get_property_async",
+    "get_revision",
+    "get_revision_async",
+    "get_tune_status",
+    "get_tune_status_async",
+    "power_down",
+    "power_down_async",
+    "power_up",
+    "power_up_async",
+    "read_response",
+    "read_response_async",
+    "reset",
+    "reset_async",
+    "self_test",
+    "self_test_async",
+    "set_property",
+    "set_property_async",
+    "sleep_ms",
+    "ticks_diff",
+    "ticks_ms",
+    "wait_cts",
+    "wait_cts_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

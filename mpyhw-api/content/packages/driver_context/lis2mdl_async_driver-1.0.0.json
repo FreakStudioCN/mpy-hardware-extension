@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LIS2MDL(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "i2c_helpers",
+    "",
+    "_gs_lis2mdl_micropython_lis2mdl",
+    "asyncio",
+    "collections",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lis2mdl_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "alert_status",
+    "data_rate",
+    "interrupt_mode",
+    "interrupt_threshold",
+    "interrupt_triggered",
+    "low_pass_filter_mode",
+    "low_power_mode",
+    "magnetic",
+    "magnetic_async",
+    "operation_mode",
+    "reset",
+    "reset_async",
+    "set_data_rate_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

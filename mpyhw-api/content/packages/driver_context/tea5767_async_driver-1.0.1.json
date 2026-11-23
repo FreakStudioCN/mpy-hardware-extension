@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "Radio(i2c)",
+    "RadioAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tea5767.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "tea5767",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tea5767_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "change_freqency",
+    "change_freqency_async",
+    "mute",
+    "mute_async",
+    "read",
+    "read_async",
+    "search",
+    "search_async",
+    "set_frequency",
+    "set_frequency_async",
+    "standby",
+    "standby_async",
+    "update",
+    "update_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

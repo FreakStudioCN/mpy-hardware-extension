@@ -1,0 +1,34 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT31(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sht31.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "sht31"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht31_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "get_temp_humi"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

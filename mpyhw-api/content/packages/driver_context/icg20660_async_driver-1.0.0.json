@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ICG20660(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_icg20660_i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_icg20660_i2c_helpers",
+    "_gs_icg20660_icg20660",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/icg20660_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_range",
+    "aclose",
+    "data_rate",
+    "data_rate_divisor",
+    "deinit",
+    "gyro",
+    "gyro_dlpf_configuration",
+    "gyro_dlpf_mode",
+    "gyro_full_scale",
+    "read_acceleration_async",
+    "read_gyro_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

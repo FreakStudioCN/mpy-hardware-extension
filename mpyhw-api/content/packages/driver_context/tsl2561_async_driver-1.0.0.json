@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TSL2561(i2c)",
+    "TSL2561Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tsl2561.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "tsl2561",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tsl2561_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "get_id",
+    "get_id_async",
+    "get_lumi",
+    "get_lumi_async",
+    "lux",
+    "read_raw",
+    "read_raw_async",
+    "set_power_up",
+    "set_power_up_async",
+    "set_timing_gain",
+    "set_timing_gain_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

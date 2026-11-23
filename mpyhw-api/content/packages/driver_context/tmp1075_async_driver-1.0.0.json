@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TMP1075(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "tmp1075.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "tmp1075",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tmp1075_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check_device",
+    "check_device_async",
+    "deinit",
+    "device_id",
+    "device_id_async",
+    "read_config",
+    "read_config_async",
+    "temperature_c",
+    "temperature_c_async",
+    "temperature_f",
+    "temperature_f_async",
+    "write_config",
+    "write_config_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

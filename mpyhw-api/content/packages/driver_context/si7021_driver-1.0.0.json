@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "Si7021(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "si7021.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "si7021"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si7021_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "convert_celcius_to_fahrenheit",
+    "deinit",
+    "reset"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

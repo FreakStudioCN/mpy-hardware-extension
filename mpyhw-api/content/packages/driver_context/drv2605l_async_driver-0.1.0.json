@@ -1,0 +1,69 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DRV2605(i2c)",
+    "DRV2605Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "drv2605l.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "drv2605l",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/drv2605l_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "duration",
+    "get_duration_async",
+    "get_id_async",
+    "get_library_async",
+    "get_mode_async",
+    "get_raw_value_async",
+    "get_realtime_value_async",
+    "get_sequence_async",
+    "id",
+    "library",
+    "mode",
+    "play",
+    "play_async",
+    "play_effect",
+    "play_effect_async",
+    "raw_value",
+    "realtime_value",
+    "sequence",
+    "set_duration_async",
+    "set_id_async",
+    "set_library_async",
+    "set_mode_async",
+    "set_realtime_value_async",
+    "set_waveform",
+    "set_waveform_async",
+    "stop",
+    "stop_async",
+    "use_ERM",
+    "use_ERM_async",
+    "use_LRM",
+    "use_LRM_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

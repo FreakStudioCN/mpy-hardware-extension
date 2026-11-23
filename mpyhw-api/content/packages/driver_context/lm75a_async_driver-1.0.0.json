@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LM75A(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_lm75a_lm75a.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_lm75a_lm75a"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lm75a_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check",
+    "check_async",
+    "config",
+    "config_async",
+    "deinit",
+    "temp",
+    "temp_async",
+    "thyst",
+    "thyst_async",
+    "tos",
+    "tos_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

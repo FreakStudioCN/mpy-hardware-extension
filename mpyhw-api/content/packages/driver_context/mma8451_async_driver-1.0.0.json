@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MMA8451(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "i2c_helpers",
+    "",
+    "_gs_mma8451_micropython_mma8451",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mma8451_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "data_rate",
+    "data_rate_async",
+    "high_pass_filter",
+    "high_pass_filter_cutoff",
+    "operation_mode",
+    "scale_range"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

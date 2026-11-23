@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHTC3(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "shtc3.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "shtc3"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/shtc3_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "deinit",
+    "i2c",
+    "is_present",
+    "measure",
+    "measure_int",
+    "read_id",
+    "reset",
+    "set_delta",
+    "sleep",
+    "wakeup"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

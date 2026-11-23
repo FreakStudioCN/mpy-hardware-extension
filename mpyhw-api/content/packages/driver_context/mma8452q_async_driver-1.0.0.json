@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MMA8452Q(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mma8452q.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mma8452q",
+    "micropython_mma8452q",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mma8452q_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "data_rate",
+    "data_rate_async",
+    "high_pass_filter",
+    "high_pass_filter_async",
+    "high_pass_filter_cutoff",
+    "high_pass_filter_cutoff_async",
+    "operation_mode",
+    "operation_mode_async",
+    "scale_range",
+    "scale_range_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

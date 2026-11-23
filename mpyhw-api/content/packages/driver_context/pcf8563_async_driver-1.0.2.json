@@ -1,0 +1,74 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCF8563(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pcf8563.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "pcf8563",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8563_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check_for_alarm_interrupt",
+    "check_for_alarm_interrupt_async",
+    "check_if_alarm_on",
+    "check_if_alarm_on_async",
+    "clear_alarm",
+    "clear_alarm_async",
+    "convert_sys_dt_to_rtc_dt",
+    "date",
+    "date_async",
+    "datetime",
+    "datetime_async",
+    "day",
+    "day_async",
+    "disable_alarm_interrupt",
+    "disable_alarm_interrupt_async",
+    "enable_alarm_interrupt",
+    "enable_alarm_interrupt_async",
+    "hours",
+    "hours_async",
+    "minutes",
+    "minutes_async",
+    "month",
+    "month_async",
+    "seconds",
+    "seconds_async",
+    "set_clk_out_frequency",
+    "set_clk_out_frequency_async",
+    "set_daily_alarm",
+    "set_daily_alarm_async",
+    "set_datetime",
+    "set_datetime_async",
+    "turn_alarm_off",
+    "turn_alarm_off_async",
+    "write_all",
+    "write_all_async",
+    "write_now",
+    "write_now_async",
+    "year",
+    "year_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

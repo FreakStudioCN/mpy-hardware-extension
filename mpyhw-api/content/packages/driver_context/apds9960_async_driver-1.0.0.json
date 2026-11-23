@@ -1,0 +1,77 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ALS(i2c)",
+    "APDS9960(i2c)",
+    "APDS9960Async(i2c)",
+    "I2CEX(i2c)",
+    "PROX(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_apds9960_apds9960.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_apds9960_apds9960",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/apds9960_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "ambientLightLevel",
+    "ambient_light_level_async",
+    "blueLightLevel",
+    "blue_light_level_async",
+    "clearInterrupt",
+    "clear_alert",
+    "clear_interrupt_async",
+    "create_async",
+    "deinit",
+    "deinit_async",
+    "eLEDCurrent",
+    "eLightGain",
+    "eProximityGain",
+    "enableInterrupt",
+    "enableSensor",
+    "enable_interrupt_async",
+    "enable_sensor_async",
+    "get_led_current_async",
+    "get_light_gain_async",
+    "get_proximity_gain_async",
+    "greenLightLevel",
+    "green_light_level_async",
+    "initialize_async",
+    "powerOn",
+    "power_on_async",
+    "proximityLevel",
+    "proximity_level_async",
+    "redLightLevel",
+    "red_light_level_async",
+    "setInterruptThreshold",
+    "set_alert_enabled",
+    "set_alert_threshold",
+    "set_interrupt_threshold_async",
+    "set_led_current_async",
+    "set_light_gain_async",
+    "set_proximity_gain_async",
+    "statusRegister",
+    "status_register_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

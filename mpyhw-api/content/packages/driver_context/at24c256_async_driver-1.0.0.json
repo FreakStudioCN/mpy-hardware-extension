@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AT24CXX(i2c)",
+    "AT24CXXAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "at24c256.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "at24c256",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/at24c256_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "read_byte",
+    "read_byte_async",
+    "read_sequence",
+    "read_sequence_async",
+    "write_byte",
+    "write_byte_async",
+    "write_page",
+    "write_page_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

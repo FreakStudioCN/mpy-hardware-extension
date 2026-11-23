@@ -1,0 +1,54 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT5336(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ft5336.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ft5336",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft5336_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "get_invert_x_async",
+    "get_invert_y_async",
+    "get_swap_xy_async",
+    "invert_x",
+    "invert_y",
+    "point",
+    "point_async",
+    "points",
+    "points_async",
+    "set_invert_x_async",
+    "set_invert_y_async",
+    "set_swap_xy_async",
+    "swap_xy",
+    "touched",
+    "touched_async",
+    "touches",
+    "touches_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

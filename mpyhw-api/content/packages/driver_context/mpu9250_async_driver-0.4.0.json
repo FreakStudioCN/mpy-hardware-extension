@@ -1,0 +1,66 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AK8963(i2c)",
+    "AK8963Async(i2c)",
+    "MPU6500(i2c)",
+    "MPU6500Async(i2c)",
+    "MPU9250(i2c)",
+    "MPU9250Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_mpu9250_ak8963.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_mpu9250_ak8963",
+    "_gs_mpu9250_mpu6500",
+    "_gs_mpu9250_mpu9250",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpu9250_async_driver/0.4.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "adjustement",
+    "adjustement_async",
+    "calibrate",
+    "calibrate_async",
+    "const",
+    "create_async",
+    "deinit",
+    "get_offset",
+    "get_offset_async",
+    "get_scale",
+    "get_scale_async",
+    "gyro",
+    "gyro_async",
+    "initialize_async",
+    "magnetic",
+    "magnetic_async",
+    "start_async",
+    "temperature_async",
+    "whoami",
+    "whoami_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

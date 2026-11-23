@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HTU31D(i2c)",
+    "HTU31DAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "htu31d.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "htu31d",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/htu31d_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "heater",
+    "humidity_resolution",
+    "initialize_async",
+    "measurements",
+    "measurements_async",
+    "reset",
+    "reset_async",
+    "serial_number",
+    "serial_number_async",
+    "set_heater_async",
+    "temp_resolution"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

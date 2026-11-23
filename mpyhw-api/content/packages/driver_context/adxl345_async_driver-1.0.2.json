@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "adxl345Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_adxl345_adxl345.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_adxl345_adxl345",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/adxl345_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "initialize_async",
+    "readByte",
+    "readByte_async",
+    "readXYZ",
+    "readXYZ_async",
+    "writeByte",
+    "writeByte_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

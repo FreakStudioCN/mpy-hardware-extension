@@ -1,0 +1,39 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "RCWL9620(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "rcwl9620.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "rcwl9620",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/rcwl9620_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "deinit_async",
+    "read",
+    "read_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

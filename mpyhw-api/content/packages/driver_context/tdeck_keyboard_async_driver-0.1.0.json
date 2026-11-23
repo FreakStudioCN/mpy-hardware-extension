@@ -1,0 +1,68 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TDeckKeyboard(i2c)",
+    "TDeckKeyboardAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_tdeck_keyboard_tdeck_keyboard.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_tdeck_keyboard_tdeck_keyboard",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tdeck_keyboard_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "decode_keycode",
+    "decode_keycode_async",
+    "deinit",
+    "deinit_async",
+    "initialize_async",
+    "is_present",
+    "is_present_async",
+    "pressed_keys",
+    "pressed_keys_async",
+    "pressed_positions",
+    "pressed_positions_async",
+    "read_key",
+    "read_key_async",
+    "read_key_name",
+    "read_key_name_async",
+    "read_keycode",
+    "read_keycode_async",
+    "read_raw",
+    "read_raw_async",
+    "self_test",
+    "self_test_async",
+    "set_brightness",
+    "set_brightness_async",
+    "set_default_brightness",
+    "set_default_brightness_async",
+    "set_key_mode",
+    "set_key_mode_async",
+    "set_raw_mode",
+    "set_raw_mode_async",
+    "wait_key",
+    "wait_key_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

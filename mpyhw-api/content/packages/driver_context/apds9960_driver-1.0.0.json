@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ALS(i2c)",
+    "APDS9960(i2c)",
+    "I2CEX(i2c)",
+    "PROX(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "apds9960.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "apds9960"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/apds9960_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "ambientLightLevel",
+    "blueLightLevel",
+    "clearInterrupt",
+    "deinit",
+    "eLEDCurrent",
+    "eLightGain",
+    "eProximityGain",
+    "enableInterrupt",
+    "enableSensor",
+    "greenLightLevel",
+    "powerOn",
+    "proximityLevel",
+    "redLightLevel",
+    "setInterruptThreshold",
+    "statusRegister"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

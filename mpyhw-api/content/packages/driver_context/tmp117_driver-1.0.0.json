@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TMP117(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    "collections",
+    "micropython_tmp117"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tmp117_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "alert_mode",
+    "alert_status",
+    "averaging_measurements",
+    "deinit",
+    "high_limit",
+    "low_limit",
+    "measurement_mode",
+    "temperature_offset"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

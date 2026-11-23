@@ -1,0 +1,55 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "KX132(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "i2c_helpers",
+    "",
+    "asyncio",
+    "micropython_kx132",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/kx132_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acc_range",
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "adp_enabled",
+    "advanced_data_path",
+    "free_fall_enabled",
+    "free_fall_threshold",
+    "interrupt_release",
+    "output_data_rate",
+    "performance_mode",
+    "previous_tilt_position",
+    "soft_reset",
+    "soft_reset_async",
+    "tap_doubletap_enable",
+    "tap_doubletap_report",
+    "tilt_position",
+    "tilt_position_enable"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

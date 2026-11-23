@@ -1,0 +1,39 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT6206(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ft6206.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ft6206"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft6206_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "deinit",
+    "irq_handler",
+    "position",
+    "read_chip_id",
+    "read_touch",
+    "touched"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HT16K33(i2c)",
+    "Seg7x4Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ht16k33_async.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ht16k33_async",
+    "asyncio",
+    "ht16k33_matrix",
+    "ht16k33_seg",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ht16k33_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "blink_rate",
+    "brightness",
+    "brightness_async",
+    "deinit",
+    "fill",
+    "hex",
+    "number",
+    "pixel",
+    "push",
+    "put",
+    "scroll",
+    "show",
+    "show_async",
+    "text"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

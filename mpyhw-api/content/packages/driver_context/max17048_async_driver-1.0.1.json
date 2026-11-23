@@ -1,0 +1,58 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MAX17048(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "max17048.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "max17048"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max17048_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "address",
+    "address_async",
+    "clearAlert",
+    "clearAlert_async",
+    "deinit",
+    "getAlertThreshold",
+    "getAlertThreshold_async",
+    "getCompensateValue",
+    "getCompensateValue_async",
+    "getSoc",
+    "getSoc_async",
+    "getVCell",
+    "getVCell_async",
+    "getVersion",
+    "getVersion_async",
+    "inAlert",
+    "inAlert_async",
+    "quickStart",
+    "quickStart_async",
+    "reset",
+    "reset_async",
+    "sensor_exists",
+    "sensor_exists_async",
+    "setAlertThreshold",
+    "setAlertThreshold_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

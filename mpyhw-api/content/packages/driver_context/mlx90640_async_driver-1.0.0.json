@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "I2CDevice(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mlx90640.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mlx90640",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mlx90640_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "get_frame",
+    "get_frame_async",
+    "init_float_array",
+    "init_int_array",
+    "read_into",
+    "refresh_rate",
+    "serial_number",
+    "write",
+    "write_then_read_into"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

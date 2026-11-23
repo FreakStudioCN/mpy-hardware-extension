@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DRV2605(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "drv2605l.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "drv2605l"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/drv2605l_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "deinit",
+    "duration",
+    "id",
+    "library",
+    "mode",
+    "play",
+    "play_effect",
+    "raw_value",
+    "realtime_value",
+    "sequence",
+    "set_waveform",
+    "stop",
+    "use_ERM",
+    "use_LRM"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

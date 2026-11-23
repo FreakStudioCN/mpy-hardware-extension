@@ -1,0 +1,41 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT5336(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ft5336.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ft5336"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft5336_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "const",
+    "deinit",
+    "invert_x",
+    "invert_y",
+    "point",
+    "points",
+    "swap_xy",
+    "touched",
+    "touches"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

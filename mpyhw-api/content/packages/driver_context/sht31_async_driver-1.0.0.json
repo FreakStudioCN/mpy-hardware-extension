@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT31(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "sht31.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "sht31",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht31_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "get_temp_humi",
+    "get_temp_humi_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

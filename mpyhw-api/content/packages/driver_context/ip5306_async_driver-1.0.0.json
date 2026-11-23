@@ -1,0 +1,37 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "IP5306(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_ip5306_ip5306.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_ip5306_ip5306"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ip5306_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "deinit_async",
+    "level",
+    "level_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

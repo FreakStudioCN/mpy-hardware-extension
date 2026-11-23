@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ADS1115(i2c)",
+    "ADS1115Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_ads1115_ads1115.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_ads1115_ads1115",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ads1115_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "alert_read",
+    "alert_read_async",
+    "alert_start",
+    "alert_start_async",
+    "conversion_start",
+    "conversion_start_async",
+    "raw_to_v",
+    "raw_to_v_async",
+    "read",
+    "read_async",
+    "read_rev",
+    "read_rev_async",
+    "set_conv",
+    "set_conv_async",
+    "wait_alert_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

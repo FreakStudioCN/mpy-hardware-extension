@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "STTS22H(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "i2c_helpers",
+    "",
+    "_gs_stts22h_micropython_stts22h",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/stts22h_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "high_limit",
+    "low_limit",
+    "output_data_rate",
+    "output_data_rate_async",
+    "temperature_async",
+    "temperature_high_limit",
+    "temperature_low_limit"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,55 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HDC1080(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_hdc1080_hdc1080.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_hdc1080_hdc1080",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/hdc1080_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "battery_status",
+    "battery_status_async",
+    "check",
+    "check_async",
+    "config",
+    "config_async",
+    "deinit",
+    "device_id",
+    "device_id_async",
+    "humidity",
+    "humidity_async",
+    "manufacturer_id",
+    "manufacturer_id_async",
+    "reset",
+    "reset_async",
+    "serial_number",
+    "serial_number_async",
+    "temperature_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

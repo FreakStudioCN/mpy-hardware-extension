@@ -1,0 +1,53 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ADS1219(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ads1219_async.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ads1219_async",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ads1219_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "powerdown",
+    "read_config",
+    "read_data",
+    "read_data_async",
+    "read_data_irq",
+    "read_status",
+    "reset",
+    "set_channel",
+    "set_channel_async",
+    "set_conversion_mode",
+    "set_conversion_mode_async",
+    "set_data_rate",
+    "set_data_rate_async",
+    "set_gain",
+    "set_gain_async",
+    "set_vref",
+    "set_vref_async",
+    "start_sync"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

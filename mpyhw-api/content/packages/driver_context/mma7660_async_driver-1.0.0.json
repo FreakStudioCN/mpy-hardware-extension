@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "Accelerometer(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mma7660.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mma7660"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mma7660_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "getAcceleration",
+    "getAcceleration_async",
+    "getAllData",
+    "getAllData_async",
+    "getXYZ",
+    "getXYZ_async",
+    "initAccelTable",
+    "initAccelTable_async",
+    "read",
+    "read_async",
+    "setMode",
+    "setMode_async",
+    "setSampleRate",
+    "setSampleRate_async",
+    "write",
+    "write_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

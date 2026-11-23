@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MS5803(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "MS5803.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "MS5803",
+    "asyncio",
+    "uasyncio",
+    "ucollections"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ms5803-01ba_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "convert_pressure",
+    "convert_temperature",
+    "get_measurements",
+    "get_measurements_async",
+    "pressure_osr",
+    "pressure_units",
+    "reset",
+    "reset_async",
+    "temp_osr",
+    "temp_units"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

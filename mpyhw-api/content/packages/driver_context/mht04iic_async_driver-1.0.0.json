@@ -1,0 +1,64 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MHT04(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mht04.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mht04",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mht04iic_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "address",
+    "calculate_crc8",
+    "clamp_humidity",
+    "conversion_time_ms",
+    "crc8",
+    "crc8_async",
+    "decode_cap_offset",
+    "decode_cap_range",
+    "deinit",
+    "deinit_async",
+    "get_address_async",
+    "get_clamp_humidity_async",
+    "get_conversion_time_ms_async",
+    "get_i2c_async",
+    "i2c",
+    "read",
+    "read_async",
+    "read_detailed",
+    "read_detailed_async",
+    "read_raw",
+    "read_raw_async",
+    "refresh_configuration",
+    "refresh_configuration_async",
+    "set_clamp_humidity",
+    "set_clamp_humidity_async",
+    "set_clamp_humidity_property_async",
+    "set_conversion_time_ms",
+    "set_conversion_time_ms_async",
+    "set_conversion_time_property_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

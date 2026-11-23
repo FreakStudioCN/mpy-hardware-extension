@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCF85063(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pcf85063.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "pcf85063",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf85063_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "bcd_to_dec",
+    "const",
+    "datetime",
+    "datetime_async",
+    "dec_to_bcd",
+    "deinit",
+    "deinit_async",
+    "enable_alarm_interrupt",
+    "enable_alarm_interrupt_async",
+    "read_datetime",
+    "read_datetime_async",
+    "reset",
+    "reset_async",
+    "set_alarm",
+    "set_alarm_async",
+    "set_datetime",
+    "set_datetime_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

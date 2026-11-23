@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VEML6075(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "veml6075.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "veml6075",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/veml6075_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "deinit_async",
+    "integration_time",
+    "integration_time_async",
+    "read_uv_async",
+    "uv_index",
+    "uv_index_async",
+    "uva",
+    "uva_async",
+    "uvb",
+    "uvb_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

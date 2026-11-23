@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCA9685(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bus_servo_async.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bus_servo_async",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/iic_bus_16_servo_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "attach_servo",
+    "attach_servo_async",
+    "detach_servo",
+    "detach_servo_async",
+    "duty",
+    "freq",
+    "pwm",
+    "reset",
+    "set_angle",
+    "set_angle_async",
+    "set_pulse_us",
+    "set_speed",
+    "set_speed_async",
+    "stop",
+    "stop_async",
+    "to_pwm_ticks"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

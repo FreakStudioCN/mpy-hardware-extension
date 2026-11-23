@@ -1,0 +1,61 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMA2X2(i2c)",
+    "BMG160(i2c)",
+    "BMM050(i2c)",
+    "BMX055(i2c)",
+    "BMX055Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_bmx055_attitude.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_bmx055_attitude",
+    "_gs_bmx055_bma2x2",
+    "_gs_bmx055_bmg160",
+    "_gs_bmx055_bmm050",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmx055_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "angles",
+    "compensation",
+    "compensation_async",
+    "deinit",
+    "finish_initialization",
+    "get_filter_bw",
+    "get_range",
+    "get_xyz_async",
+    "hall",
+    "heading",
+    "initialize_async",
+    "set_filter_bw",
+    "set_range",
+    "x",
+    "xyz",
+    "y",
+    "z"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

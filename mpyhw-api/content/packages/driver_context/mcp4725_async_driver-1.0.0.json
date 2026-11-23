@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MCP4725(i2c)",
+    "MCP4725Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mcp4725.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mcp4725",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mcp4725_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "config",
+    "config_async",
+    "read",
+    "read_async",
+    "write",
+    "write_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

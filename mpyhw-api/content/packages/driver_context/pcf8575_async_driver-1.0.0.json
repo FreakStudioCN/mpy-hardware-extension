@@ -1,0 +1,66 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCF8575(i2c)",
+    "PCF8575Async(i2c)",
+    "SSD1306_I2C(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_pcf8575_pcf8575.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_pcf8575_pcf8575",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8575_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "add_menu",
+    "check",
+    "check_async",
+    "contrast",
+    "deinit",
+    "delete_menu",
+    "dispatch_pending_async",
+    "display_menu",
+    "get_current_menu_name",
+    "get_port_async",
+    "init_display",
+    "initialize_async",
+    "invert",
+    "pin",
+    "pin_async",
+    "port",
+    "poweroff",
+    "poweron",
+    "select_back",
+    "select_current",
+    "select_down",
+    "select_up",
+    "set_port_async",
+    "show",
+    "show_message",
+    "toggle",
+    "toggle_async",
+    "write_cmd",
+    "write_data"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

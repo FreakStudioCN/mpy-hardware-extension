@@ -1,0 +1,36 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "JEDMGasMeas(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "jedm_gas_meas.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "jedm_gas_meas"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/jedm_gas_meas_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "calibrate_zero",
+    "calibrate_zero_async",
+    "read_concentration",
+    "read_concentration_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

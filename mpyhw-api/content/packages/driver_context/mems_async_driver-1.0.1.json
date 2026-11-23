@@ -1,0 +1,63 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AirQualityMonitor(i2c)",
+    "MEMSGasSensor(i2c)",
+    "PCA9546ADR(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mems_air_module.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mems_air_module",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mems_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "calibrate_sensor",
+    "calibrate_sensor_async",
+    "calibrate_zero",
+    "calibrate_zero_async",
+    "current_mask",
+    "current_mask_async",
+    "disable_all",
+    "disable_all_async",
+    "get_address",
+    "get_address_async",
+    "get_type",
+    "get_type_async",
+    "read_all",
+    "read_all_async",
+    "read_concentration",
+    "read_concentration_async",
+    "read_sensor",
+    "read_sensor_async",
+    "read_status",
+    "read_status_async",
+    "register_sensor",
+    "register_sensor_async",
+    "select_channel",
+    "select_channel_async",
+    "write_ctl",
+    "write_ctl_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

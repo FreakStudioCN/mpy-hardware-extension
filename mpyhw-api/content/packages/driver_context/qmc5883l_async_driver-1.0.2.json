@@ -1,0 +1,60 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "QMC5883P(i2c)",
+    "QMC5883PAsync(i2c)",
+    "mag_base(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_qmc5883l_qmc5883p.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_qmc5883l_qmc5883p",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/qmc5883l_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "i2c_readregs",
+    "i2c_readregs_async",
+    "i2c_writereg",
+    "i2c_writereg_async",
+    "initialize_async",
+    "range_sel",
+    "range_sel_async",
+    "read_raw",
+    "read_raw_async",
+    "read_scaled",
+    "read_scaled_async",
+    "ready",
+    "ready_async",
+    "reset",
+    "reset_async",
+    "set_oversampling",
+    "set_oversampling_async",
+    "set_range",
+    "set_range_async",
+    "set_sampling_rate",
+    "set_sampling_rate_async",
+    "set_samplingrate",
+    "set_samplingrate_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

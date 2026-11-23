@@ -1,0 +1,63 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "T117(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "t117b.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "t117b",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/t117b_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "deinit_async",
+    "enable_alerts",
+    "enable_alerts_async",
+    "get_status",
+    "get_status_async",
+    "get_status_raw",
+    "get_status_raw_async",
+    "get_temp",
+    "get_temp_async",
+    "get_temp_raw",
+    "get_temp_raw_async",
+    "set_alert_config",
+    "set_alert_config_async",
+    "set_alert_thresholds",
+    "set_alert_thresholds_async",
+    "set_avg",
+    "set_avg_async",
+    "set_measure_mode",
+    "set_measure_mode_async",
+    "set_mps",
+    "set_mps_async",
+    "set_sleep",
+    "set_sleep_async",
+    "soft_reset",
+    "soft_reset_async",
+    "wait_conv_ready",
+    "wait_conv_ready_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

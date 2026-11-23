@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "HTS221(i2c)",
+    "HTS221Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_hts221_hts221.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_hts221_hts221",
+    "_gs_hts221_i2c_helpers",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/hts221_async_driver/1.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "block_data_update",
+    "data_rate",
+    "deinit",
+    "get_block_data_update_async",
+    "get_data_rate_async",
+    "get_relative_humidity_async",
+    "get_temperature_async",
+    "initialize_async",
+    "set_block_data_update_async",
+    "set_data_rate_async",
+    "take_measurements",
+    "take_measurements_async"
+  ],
+  "read_properties": [
+    "temperature",
+    "relative_humidity"
+  ],
+  "support_level": "generatable"
+}

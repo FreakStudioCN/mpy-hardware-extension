@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT25(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_sht25_sht25.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_sht25_sht25",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht25_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "getHumidity",
+    "getTemperature",
+    "humidity",
+    "humidity_async",
+    "read_user_register",
+    "read_user_register_async",
+    "reset",
+    "reset_async",
+    "temperature_c",
+    "temperature_c_async",
+    "temperature_f",
+    "temperature_f_async",
+    "write_user_register",
+    "write_user_register_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

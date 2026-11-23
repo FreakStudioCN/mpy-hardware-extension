@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT6336(i2c)",
+    "FT6336Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_ft6336_ft6336.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_ft6336_ft6336",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft6336_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "enable_gesture",
+    "enable_gesture_async",
+    "get_gesture",
+    "get_gesture_async",
+    "get_touch_count",
+    "get_touch_count_async",
+    "initialize_async",
+    "read_chip_id",
+    "read_chip_id_async",
+    "read_point",
+    "read_point_async",
+    "reset",
+    "reset_async",
+    "service_irq_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

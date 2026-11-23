@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "CST328(i2c)",
+    "CST328Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_cst328_cst328.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_cst328_cst328",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/cst328_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "deinit_async",
+    "get_size",
+    "get_size_async",
+    "initialize_async",
+    "read_point",
+    "read_point_async",
+    "reset",
+    "reset_async",
+    "set_debug",
+    "set_debug_async",
+    "set_size",
+    "set_size_async",
+    "touched",
+    "touched_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

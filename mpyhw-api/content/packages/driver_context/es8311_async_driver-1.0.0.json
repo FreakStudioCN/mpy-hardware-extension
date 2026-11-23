@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ES8311(i2c)",
+    "ES8311Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "es8311.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "es8311",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/es8311_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "clock_config",
+    "clock_config_async",
+    "const",
+    "deinit",
+    "deinit_async",
+    "fmt_config",
+    "fmt_config_async",
+    "get_coeff",
+    "init",
+    "init_async",
+    "microphone_config",
+    "microphone_config_async",
+    "resolution_config",
+    "resolution_config_async",
+    "sample_frequency_config",
+    "sample_frequency_config_async",
+    "voice_volume_get",
+    "voice_volume_get_async",
+    "voice_volume_set",
+    "voice_volume_set_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCA9546ADR(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "pca9546adr.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "pca9546adr"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pca9546_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "current_mask",
+    "current_mask_async",
+    "disable_all",
+    "disable_all_async",
+    "read_status",
+    "read_status_async",
+    "select_channel",
+    "select_channel_async",
+    "write_ctl",
+    "write_ctl_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

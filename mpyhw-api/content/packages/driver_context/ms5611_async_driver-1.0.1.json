@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MS5611(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ms5611.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ms5611",
+    "asyncio",
+    "micropython_ms5611",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ms5611_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "measurements",
+    "measurements_async",
+    "pressure_oversample_rate",
+    "temperature_oversample_rate"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

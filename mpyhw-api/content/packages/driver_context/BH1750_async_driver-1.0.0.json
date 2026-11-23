@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BH1750(i2c)",
+    "BH1750Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bh_1750.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bh_1750",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/BH1750_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "configure",
+    "configure_async",
+    "initialize_async",
+    "measurement",
+    "measurement_async",
+    "measurements",
+    "measurements_async",
+    "power_off",
+    "power_off_async",
+    "power_on",
+    "power_on_async",
+    "reset",
+    "reset_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

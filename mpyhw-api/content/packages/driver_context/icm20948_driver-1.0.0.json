@@ -1,0 +1,54 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ICM20948(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    "micropython_icm20948"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/icm20948_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acc_data_rate",
+    "acc_data_rate_divisor",
+    "acc_dlpf_cutoff",
+    "acc_enabled",
+    "acc_filter_choice",
+    "acceleration",
+    "accelerometer_range",
+    "clock_select",
+    "deinit",
+    "gyro",
+    "gyro_data_rate",
+    "gyro_data_rate_divisor",
+    "gyro_dlpf_cutoff",
+    "gyro_enabled",
+    "gyro_filter_choice",
+    "gyro_full_scale",
+    "power_bank",
+    "reset",
+    "temperature_enabled"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,42 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AM2320(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "am2320.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "am2320",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/am2320_async_driver/1.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check",
+    "deinit",
+    "humidity",
+    "measure",
+    "measure_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,53 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMA2X2(i2c)",
+    "BMG160(i2c)",
+    "BMM050(i2c)",
+    "BMX055(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmx055.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bmx055",
+    "bma2x2",
+    "bmg160",
+    "bmm050"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmx055_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "angles",
+    "compensation",
+    "deinit",
+    "get_filter_bw",
+    "get_range",
+    "hall",
+    "heading",
+    "set_filter_bw",
+    "set_range",
+    "x",
+    "xyz",
+    "y",
+    "z"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

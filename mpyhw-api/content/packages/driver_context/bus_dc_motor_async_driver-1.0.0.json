@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCA9685(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_bus_dc_motor_bus_dc_motor.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_bus_dc_motor_bus_dc_motor",
+    "_gs_bus_dc_motor_pca9685",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bus_dc_motor_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "break_motor",
+    "break_motor_async",
+    "duty",
+    "freq",
+    "pwm",
+    "reset",
+    "set_motor_speed",
+    "set_motor_speed_async",
+    "stop_motor",
+    "stop_motor_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

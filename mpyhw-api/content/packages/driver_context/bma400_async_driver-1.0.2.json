@@ -1,0 +1,59 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMA400(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bma400.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bma400",
+    "asyncio",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bma400_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acc_range",
+    "acceleration",
+    "acceleration_async",
+    "aclose",
+    "filter_bandwidth",
+    "get_acc_range_async",
+    "get_filter_bandwidth_async",
+    "get_output_data_rate_async",
+    "get_oversampling_rate_async",
+    "get_power_mode_async",
+    "get_source_data_registers_async",
+    "output_data_rate",
+    "oversampling_rate",
+    "power_mode",
+    "set_acc_range_async",
+    "set_filter_bandwidth_async",
+    "set_output_data_rate_async",
+    "set_oversampling_rate_async",
+    "set_power_mode_async",
+    "set_source_data_registers_async",
+    "source_data_registers",
+    "temperature_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

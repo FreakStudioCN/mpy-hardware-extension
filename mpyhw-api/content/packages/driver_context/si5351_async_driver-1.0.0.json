@@ -1,0 +1,65 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SI5351_I2C(i2c)",
+    "SI5351_I2CAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "silicon5351.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "silicon5351",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si5351_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "approximate_fraction",
+    "approximate_fraction_async",
+    "disable_oeb",
+    "disable_oeb_async",
+    "disable_output",
+    "disable_output_async",
+    "disabled_states",
+    "disabled_states_async",
+    "enable_output",
+    "enable_output_async",
+    "init_clock",
+    "init_clock_async",
+    "init_multisynth",
+    "init_multisynth_async",
+    "initialize_async",
+    "reset_pll",
+    "reset_pll_async",
+    "set_freq_fixedms",
+    "set_freq_fixedms_async",
+    "set_freq_fixedpll",
+    "set_freq_fixedpll_async",
+    "set_phase",
+    "set_phase_async",
+    "setup_multisynth",
+    "setup_multisynth_async",
+    "setup_pll",
+    "setup_pll_async",
+    "write_config",
+    "write_config_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

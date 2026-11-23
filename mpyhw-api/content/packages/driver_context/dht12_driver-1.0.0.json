@@ -1,0 +1,38 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DHT12(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dht12.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "dht12"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/dht12_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "check",
+    "deinit",
+    "humidity",
+    "measure"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

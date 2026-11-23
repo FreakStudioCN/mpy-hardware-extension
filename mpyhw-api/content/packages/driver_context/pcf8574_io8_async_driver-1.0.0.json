@@ -1,0 +1,53 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "PCF8574(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_pcf8574_io8_pcf8574.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_pcf8574_io8_pcf8574"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/pcf8574_io8_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check",
+    "check_async",
+    "configure_port",
+    "deinit",
+    "dispatch_pending_async",
+    "get_pin",
+    "get_port",
+    "get_port_async",
+    "pin",
+    "pin_async",
+    "port",
+    "ports_state",
+    "read_all",
+    "refresh",
+    "set_pin",
+    "set_port",
+    "set_port_async",
+    "toggle",
+    "toggle_async",
+    "write_all"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

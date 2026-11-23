@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMI160(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_bmi160_bmi160.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_bmi160_bmi160",
+    "_gs_bmi160_i2c_helpers",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmi160_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acc_power_mode",
+    "acceleration",
+    "acceleration_bandwidth_parameter",
+    "acceleration_output_data_rate",
+    "acceleration_range",
+    "acceleration_undersample",
+    "aclose",
+    "deinit",
+    "deinit_async",
+    "error_code",
+    "gyro",
+    "gyro_bandwidth_parameter",
+    "gyro_output_data_rate",
+    "gyro_power_mode",
+    "gyro_range",
+    "initialize_async",
+    "power_mode_status",
+    "soft_reset",
+    "soft_reset_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

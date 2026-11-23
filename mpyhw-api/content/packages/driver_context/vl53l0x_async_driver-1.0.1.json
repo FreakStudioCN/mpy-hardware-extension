@@ -1,0 +1,58 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VL53L0X(i2c)",
+    "VL53L0XAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vl53l0x.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "vl53l0x",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vl53l0x_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "calc_macro_period",
+    "decode_Vcsel_period",
+    "decode_timeout",
+    "encode_Vcsel_period",
+    "encode_timeout",
+    "get_sequence_step_enables",
+    "get_sequence_step_timeouts",
+    "get_vcsel_pulse_period",
+    "init",
+    "initialize_async",
+    "perform_single_ref_calibration",
+    "read",
+    "read_async",
+    "set_Vcsel_pulse_period",
+    "set_measurement_timing_budget",
+    "set_signal_rate_limit",
+    "start",
+    "start_async",
+    "stop",
+    "stop_async",
+    "timeout_Mclks_to_microseconds",
+    "timeout_microseconds_to_Mclks"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

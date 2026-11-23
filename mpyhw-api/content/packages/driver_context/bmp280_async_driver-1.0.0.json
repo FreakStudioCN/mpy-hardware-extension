@@ -1,0 +1,43 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMP280(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmp280_float.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bmp280_float",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmp280_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "altitude",
+    "dew_point",
+    "read_compensated_data",
+    "read_compensated_data_async",
+    "read_raw_data",
+    "read_raw_data_async",
+    "sealevel",
+    "values"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

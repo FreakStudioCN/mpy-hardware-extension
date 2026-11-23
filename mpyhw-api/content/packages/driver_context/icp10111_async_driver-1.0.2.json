@@ -1,0 +1,44 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ICP10111(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "icp10111.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "icp10111",
+    "asyncio",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/icp10111_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "calculate_conversion_constants",
+    "get_conversion_values",
+    "get_pressure",
+    "measurements",
+    "measurements_async",
+    "operation_mode",
+    "reset",
+    "reset_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

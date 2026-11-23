@@ -1,0 +1,51 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MAX44009(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_max44009_max44009.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_max44009_max44009"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/max44009_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "continuous",
+    "current_division_ratio",
+    "deinit",
+    "int_enable",
+    "int_status",
+    "integration_time",
+    "lower_threshold",
+    "lux",
+    "lux_fast",
+    "manual",
+    "read_int_status_async",
+    "read_lux_async",
+    "read_lux_fast_async",
+    "set_continuous_async",
+    "set_current_division_ratio_async",
+    "set_integration_time_async",
+    "set_manual_async",
+    "upper_threshold"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

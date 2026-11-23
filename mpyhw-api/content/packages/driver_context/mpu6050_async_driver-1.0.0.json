@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MPU6050(i2c)",
+    "MPU6050Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_mpu6050_mpu6050.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_mpu6050_mpu6050",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mpu6050_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "get_accel_range",
+    "get_angles_degrees",
+    "get_angles_radians",
+    "get_gyro_range",
+    "read_accel_abs",
+    "read_accel_data",
+    "read_accel_data_async",
+    "read_angle",
+    "read_gyro_data",
+    "read_gyro_data_async",
+    "read_temperature",
+    "read_temperature_async",
+    "set_accel_range",
+    "set_gyro_range",
+    "signedIntFromBytes",
+    "start_async",
+    "update_complementary",
+    "update_kalman",
+    "update_roll_pitch",
+    "update_roll_pitch_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

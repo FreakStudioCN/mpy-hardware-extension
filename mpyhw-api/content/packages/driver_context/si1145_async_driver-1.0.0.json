@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SI1145(i2c)",
+    "SI1145Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "si1145.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "si1145",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/si1145_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "create_async",
+    "initialize_async",
+    "read_ir",
+    "read_ir_async",
+    "read_prox",
+    "read_prox_async",
+    "read_uv",
+    "read_uv_async",
+    "read_visible",
+    "read_visible_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

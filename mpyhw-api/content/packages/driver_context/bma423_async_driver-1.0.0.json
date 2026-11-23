@@ -1,0 +1,61 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMA423(i2c)",
+    "BMA423Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_bma423_bma423.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_bma423_bma423",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bma423_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "alloc_emergency_exception_buf",
+    "configure_events",
+    "const",
+    "deinit",
+    "deinit_async",
+    "enable_accelerometer",
+    "enable_features_detection",
+    "enable_features_detection_async",
+    "get_steps",
+    "get_steps_async",
+    "get_temperature",
+    "get_temperature_async",
+    "get_xyz",
+    "get_xyz_async",
+    "initialize_async",
+    "load_features_config",
+    "load_features_config_async",
+    "process_irq",
+    "reset",
+    "reset_async",
+    "set_accelerometer_avg",
+    "set_accelerometer_freq",
+    "set_accelerometer_perf",
+    "set_advanced_power_save",
+    "set_range"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

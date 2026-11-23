@@ -1,0 +1,77 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "AS5600(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "as5600.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "as5600"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/as5600l_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "agc",
+    "agc_async",
+    "angle",
+    "angle_async",
+    "burn_angle",
+    "burn_angle_async",
+    "burn_setting",
+    "burn_setting_async",
+    "deinit",
+    "deinit_async",
+    "fth",
+    "fth_async",
+    "hyst",
+    "hyst_async",
+    "magnitude",
+    "magnitude_async",
+    "mang",
+    "mang_async",
+    "md",
+    "md_async",
+    "mh",
+    "mh_async",
+    "ml",
+    "ml_async",
+    "mpos",
+    "mpos_async",
+    "outs",
+    "outs_async",
+    "pm",
+    "pm_async",
+    "pwmf",
+    "pwmf_async",
+    "rawangle",
+    "rawangle_async",
+    "readwrite",
+    "readwrite_async",
+    "sf",
+    "sf_async",
+    "watchdog",
+    "watchdog_async",
+    "zmco",
+    "zmco_async",
+    "zpos",
+    "zpos_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

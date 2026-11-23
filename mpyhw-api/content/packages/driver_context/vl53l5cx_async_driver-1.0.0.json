@@ -1,0 +1,73 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VL53L5CX(i2c)",
+    "VL53L5CXCP(i2c)",
+    "VL53L5CXMPAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "__init__.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "__init__",
+    "",
+    "adafruit_bus_device",
+    "asyncio",
+    "io",
+    "uasyncio",
+    "vl53l5cx"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vl53l5cx_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "check_data_ready",
+    "check_data_ready_async",
+    "default_config_data",
+    "deinit",
+    "deinit_async",
+    "fw_data",
+    "get_ranging_data",
+    "get_ranging_data_async",
+    "get_ranging_data_when_ready_async",
+    "init",
+    "init_async",
+    "initialize_async",
+    "integration_time_ms",
+    "is_alive",
+    "is_alive_async",
+    "power_mode",
+    "ranging_freq",
+    "ranging_mode",
+    "reset",
+    "reset_async",
+    "resolution",
+    "set_ranging_freq_async",
+    "set_resolution_async",
+    "sharpener_percent",
+    "start_ranging",
+    "start_ranging_async",
+    "stop_ranging",
+    "stop_ranging_async",
+    "target_order",
+    "wait_data_ready_async",
+    "xtalk4x4_data",
+    "xtalk_data"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

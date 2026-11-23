@@ -1,0 +1,72 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "GT911(i2c)",
+    "GT911Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_gt911_gt911.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_gt911_gt911",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/gt911_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "available",
+    "available_async",
+    "bitmap",
+    "blit_buffer",
+    "color565",
+    "fill",
+    "fill_rect",
+    "hard_reset",
+    "hline",
+    "init",
+    "initialize_async",
+    "inversion_mode",
+    "irq_callback",
+    "line",
+    "pbitmap",
+    "pixel",
+    "polygon",
+    "read_id",
+    "read_id_async",
+    "read_touch",
+    "read_touch_async",
+    "rect",
+    "reflash_config",
+    "reflash_config_async",
+    "reset",
+    "reset_async",
+    "rotation",
+    "service_irq_async",
+    "sleep_mode",
+    "soft_reset",
+    "text",
+    "vline",
+    "vscrdef",
+    "vscsad",
+    "write",
+    "write_width"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

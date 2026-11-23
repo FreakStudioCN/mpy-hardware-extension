@@ -1,0 +1,59 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BNO055Async(i2c)",
+    "BNO055_BASE(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bno055_async.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bno055_async",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bno055_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "accel_async",
+    "aclose",
+    "cal_status",
+    "cal_status_async",
+    "calibrated",
+    "deinit",
+    "euler_async",
+    "external_crystal",
+    "external_crystal_async",
+    "gravity_async",
+    "gyro_async",
+    "lin_acc_async",
+    "mag_async",
+    "mode",
+    "mode_async",
+    "quaternion_async",
+    "reset",
+    "scaled_tuple",
+    "sensor_offsets",
+    "set_offsets",
+    "start",
+    "temperature_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

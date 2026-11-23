@@ -1,0 +1,47 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "FT6x06(i2c)",
+    "FT6x06Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_ft6x06_ft6x06.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_ft6x06_ft6x06",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ft6x06_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "get_coords_for_p",
+    "get_coords_for_p_async",
+    "get_reg",
+    "get_reg_async",
+    "get_touch_coords",
+    "get_touch_coords_async",
+    "get_touch_count",
+    "get_touch_count_async",
+    "service_irq_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

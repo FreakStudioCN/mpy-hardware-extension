@@ -1,0 +1,40 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MCP9808(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mcp9808.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mcp9808"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mcp9808_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acknowledge_alert_irq",
+    "deinit",
+    "get_temp",
+    "get_temp_int",
+    "set_alert_boundary_temp",
+    "set_alert_mode",
+    "set_resolution",
+    "set_shutdown_mode"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

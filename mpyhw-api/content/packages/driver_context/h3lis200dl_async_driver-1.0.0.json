@@ -1,0 +1,57 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "H3LIS200DL(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "h3lis200dl.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "h3lis200dl",
+    "",
+    "_gs_h3lis200dl_micropython_h3lis200dl",
+    "collections",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/h3lis200dl_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "aclose",
+    "data_rate",
+    "full_scale_selection",
+    "get_acceleration_async",
+    "high_pass_filter_cutoff",
+    "high_pass_filter_mode",
+    "interrupt1_configuration",
+    "interrupt1_duration",
+    "interrupt1_latched",
+    "interrupt1_source_register",
+    "interrupt1_threshold",
+    "interrupt2_configuration",
+    "interrupt2_duration",
+    "interrupt2_latched",
+    "interrupt2_source_register",
+    "interrupt2_threshold",
+    "operation_mode",
+    "x_enabled",
+    "y_enabled",
+    "z_enabled"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

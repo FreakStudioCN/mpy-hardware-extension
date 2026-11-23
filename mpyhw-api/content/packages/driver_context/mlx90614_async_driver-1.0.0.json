@@ -1,0 +1,50 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MLX90614(i2c)",
+    "MLX90615(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mlx90614.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mlx90614"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mlx90614_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "ambient",
+    "ambient_async",
+    "get",
+    "get_async",
+    "object",
+    "object2",
+    "object2_async",
+    "object_async",
+    "read",
+    "read_ambient",
+    "read_ambient_async",
+    "read_async",
+    "read_object",
+    "read_object2",
+    "read_object2_async",
+    "read_object_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

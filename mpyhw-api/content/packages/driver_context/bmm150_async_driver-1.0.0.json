@@ -1,0 +1,57 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "BMM150(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "bmm150.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "bmm150",
+    "",
+    "_gs_bmm150_micropython_bmm150",
+    "collections",
+    "typing"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/bmm150_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "data_rate",
+    "deinit",
+    "get_data_rate_async",
+    "get_high_threshold_async",
+    "get_interrupt_mode_async",
+    "get_low_threshold_async",
+    "get_measurements_async",
+    "get_operation_mode_async",
+    "get_status_interrupt_async",
+    "high_threshold",
+    "interrupt_mode",
+    "low_threshold",
+    "measurements",
+    "operation_mode",
+    "set_data_rate_async",
+    "set_high_threshold_async",
+    "set_interrupt_mode_async",
+    "set_low_threshold_async",
+    "set_operation_mode_async",
+    "status_interrupt"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

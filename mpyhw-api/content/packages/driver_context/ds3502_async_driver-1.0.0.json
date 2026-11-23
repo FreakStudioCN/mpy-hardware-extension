@@ -1,0 +1,48 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DS3502(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_ds3502_dac_waveformgenerator.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_ds3502_dac_waveformgenerator",
+    "_gs_ds3502_ds3502",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ds3502_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "generate_samples",
+    "generate_samples_async",
+    "read_control_register",
+    "read_wiper",
+    "set_mode",
+    "start",
+    "start_async",
+    "stop",
+    "stop_async",
+    "to_dac_value",
+    "update",
+    "write_wiper"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

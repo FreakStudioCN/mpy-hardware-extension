@@ -1,0 +1,72 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "MCP23017(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "mcp23017.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "mcp23017"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/mcp23017_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "call_async",
+    "config",
+    "config_async",
+    "default_value",
+    "default_value_async",
+    "gpio",
+    "gpio_async",
+    "init",
+    "init_async",
+    "input",
+    "input_async",
+    "input_polarity",
+    "input_polarity_async",
+    "interrupt_captured",
+    "interrupt_captured_async",
+    "interrupt_captured_gpio",
+    "interrupt_captured_gpio_async",
+    "interrupt_compare_default",
+    "interrupt_compare_default_async",
+    "interrupt_enable",
+    "interrupt_enable_async",
+    "interrupt_flag",
+    "interrupt_flag_async",
+    "interrupt_triggered_gpio",
+    "interrupt_triggered_gpio_async",
+    "io_config",
+    "io_config_async",
+    "mode",
+    "mode_async",
+    "output",
+    "output_async",
+    "output_latch",
+    "output_latch_async",
+    "pin",
+    "pin_async",
+    "pullup",
+    "pullup_async",
+    "value",
+    "value_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

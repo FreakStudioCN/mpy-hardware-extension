@@ -1,0 +1,52 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "QMI8658(i2c)",
+    "QMI8658Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "qmi8658.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "qmi8658",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/qmi8658_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "configure_default",
+    "configure_default_async",
+    "const",
+    "deinit",
+    "deinit_async",
+    "initialize_async",
+    "read_raw",
+    "read_raw_async",
+    "read_xyz",
+    "read_xyz_async",
+    "reset",
+    "reset_async",
+    "revision",
+    "revision_async",
+    "who_am_i",
+    "who_am_i_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

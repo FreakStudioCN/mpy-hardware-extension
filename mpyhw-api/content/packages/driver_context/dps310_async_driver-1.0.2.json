@@ -1,0 +1,59 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "DPS310(i2c)",
+    "DPS310Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "dps310.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "dps310",
+    "asyncio",
+    "micropython_dps310",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/dps310_async_driver/1.0.2/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "altitude",
+    "create_async",
+    "get_altitude_async",
+    "get_pressure_async",
+    "get_sea_level_pressure_async",
+    "get_temperature_async",
+    "initialize_async",
+    "mode",
+    "pressure",
+    "pressure_oversample",
+    "pressure_rate",
+    "sea_level_pressure",
+    "set_mode_async",
+    "set_pressure_oversample_async",
+    "set_pressure_rate_async",
+    "set_temperature_oversample_async",
+    "set_temperature_rate_async",
+    "temperature_oversample",
+    "temperature_rate",
+    "twos_complement"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

@@ -1,0 +1,49 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "SHT30(i2c)",
+    "SHT30Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_sht30_sht30.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_sht30_sht30",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/sht30_async_driver/0.2.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "clear_status",
+    "deinit",
+    "get_message",
+    "initialize_async",
+    "is_present",
+    "measure",
+    "measure_async",
+    "measure_int",
+    "reset",
+    "reset_async",
+    "set_delta",
+    "status",
+    "status_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

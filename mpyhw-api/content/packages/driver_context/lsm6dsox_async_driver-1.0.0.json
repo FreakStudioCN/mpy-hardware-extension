@@ -1,0 +1,58 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "LSM6DSOX(i2c)",
+    "LSM6DSOXAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_lsm6dsox_i2c_helpers.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_lsm6dsox_i2c_helpers",
+    "_gs_lsm6dsox_lsm6dsox",
+    "asyncio",
+    "typing",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/lsm6dsox_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "acceleration",
+    "acceleration_data_rate",
+    "acceleration_range",
+    "aclose",
+    "create_async",
+    "deinit",
+    "gyro",
+    "gyro_data_rate",
+    "gyro_range",
+    "high_pass_filter",
+    "initialize_async",
+    "read_acceleration_async",
+    "read_gyro_async",
+    "read_temperature_async",
+    "reset",
+    "reset_async",
+    "set_acceleration_range_async",
+    "set_gyro_range_async",
+    "set_high_pass_filter_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

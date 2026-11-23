@@ -1,0 +1,45 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VCNL4010(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vcnl4010.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "vcnl4010",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vcnl4010_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "ambient",
+    "ambient_async",
+    "ambient_light_average",
+    "ambient_light_rate",
+    "deinit",
+    "deinit_async",
+    "irl_led_current",
+    "proximity",
+    "proximity_async",
+    "proximity_rate"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

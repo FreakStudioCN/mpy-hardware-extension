@@ -1,0 +1,67 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ADT7410(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_adt7410_adt7410.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_adt7410_adt7410",
+    "_gs_adt7410_i2c_helpers",
+    "asyncio",
+    "collections",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/adt7410_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "alert_status",
+    "alert_status_async",
+    "comparator_mode",
+    "critical_temperature",
+    "deinit",
+    "deinit_async",
+    "get_comparator_mode_async",
+    "get_critical_temperature_async",
+    "get_high_temperature_async",
+    "get_hysteresis_temperature_async",
+    "get_low_temperature_async",
+    "get_operation_mode_async",
+    "get_resolution_mode_async",
+    "high_temperature",
+    "hysteresis_temperature",
+    "low_temperature",
+    "operation_mode",
+    "reset",
+    "reset_async",
+    "resolution_mode",
+    "set_comparator_mode_async",
+    "set_critical_temperature_async",
+    "set_high_temperature_async",
+    "set_hysteresis_temperature_async",
+    "set_low_temperature_async",
+    "set_operation_mode_async",
+    "set_resolution_mode_async",
+    "temperature_async"
+  ],
+  "read_properties": [
+    "temperature"
+  ],
+  "support_level": "generatable"
+}

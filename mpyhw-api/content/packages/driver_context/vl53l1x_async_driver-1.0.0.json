@@ -1,0 +1,46 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "VL53L1X(i2c)",
+    "VL53L1XAsync(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "vl53l1x.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "vl53l1x",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/vl53l1x_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "deinit",
+    "initialize_async",
+    "read",
+    "read_async",
+    "read_model_id",
+    "read_reg",
+    "read_reg_16bit",
+    "reset",
+    "write_reg",
+    "write_reg_16bit"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

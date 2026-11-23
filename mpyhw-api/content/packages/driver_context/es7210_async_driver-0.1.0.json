@@ -1,0 +1,67 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "ES7210(i2c)",
+    "ES7210Async(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "es7210.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "es7210",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/es7210_async_driver/0.1.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "alloc_emergency_exception_buf",
+    "configure",
+    "configure_async",
+    "configure_i2s_format",
+    "configure_i2s_format_async",
+    "configure_sample_rate",
+    "configure_sample_rate_async",
+    "const",
+    "create_async",
+    "deinit",
+    "deinit_async",
+    "mute",
+    "mute_async",
+    "read_reg",
+    "read_reg_async",
+    "reset",
+    "reset_async",
+    "scan",
+    "scan_async",
+    "schedule",
+    "self_test",
+    "self_test_async",
+    "set_mic_gain",
+    "set_mic_gain_async",
+    "sleep_ms",
+    "ticks_diff",
+    "ticks_ms",
+    "update_bits",
+    "update_bits_async",
+    "write_reg",
+    "write_reg_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

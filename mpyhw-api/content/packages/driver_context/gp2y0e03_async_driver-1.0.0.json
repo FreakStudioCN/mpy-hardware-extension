@@ -1,0 +1,40 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "GP2Y0E03(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "gp2y0e03.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "gp2y0e03"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/gp2y0e03_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "read",
+    "read_async",
+    "read_raw",
+    "read_raw_async",
+    "shift",
+    "shift_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

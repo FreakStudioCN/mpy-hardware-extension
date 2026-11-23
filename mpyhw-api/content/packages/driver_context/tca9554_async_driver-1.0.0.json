@@ -1,0 +1,59 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "TCA9554(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "_gs_tca9554_tca9554.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "_gs_tca9554_tca9554",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/tca9554_async_driver/1.0.0/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "const",
+    "deinit",
+    "deinit_async",
+    "initialize_async",
+    "is_connected",
+    "is_connected_async",
+    "pin_mode",
+    "pin_mode8",
+    "pin_mode8_async",
+    "pin_mode_async",
+    "read",
+    "read_async",
+    "read_input8",
+    "read_input8_async",
+    "read_output8",
+    "read_output8_async",
+    "set_polarity",
+    "set_polarity8",
+    "set_polarity8_async",
+    "set_polarity_async",
+    "write",
+    "write_async",
+    "write_port",
+    "write_port_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}

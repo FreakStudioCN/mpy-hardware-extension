@@ -1,0 +1,56 @@
+{
+  "bus": [
+    "i2c"
+  ],
+  "confidence": 0.75,
+  "constructors": [
+    "CCS811(i2c)"
+  ],
+  "evidence_refs": [
+    {
+      "path": "ccs811.py",
+      "type": "source"
+    }
+  ],
+  "examples": [],
+  "import_names": [
+    "ccs811",
+    "asyncio",
+    "uasyncio"
+  ],
+  "install": {
+    "method": "mpremote mip install",
+    "url": "https://upypi.net/pkgs/ccs811_async_driver/1.0.1/package.json"
+  },
+  "known_issues": [],
+  "pin_roles": [
+    "i2c_sda",
+    "i2c_scl"
+  ],
+  "read_methods": [
+    "aclose",
+    "app_valid",
+    "app_valid_async",
+    "check_for_error",
+    "check_for_error_async",
+    "configure_ccs811",
+    "configure_ccs811_async",
+    "data_available",
+    "get_base_line",
+    "get_base_line_async",
+    "print_error",
+    "read_eCO2",
+    "read_eCO2_async",
+    "read_tVOC",
+    "read_tVOC_async",
+    "reset",
+    "reset_async",
+    "set_drive_mode",
+    "set_drive_mode_async",
+    "setup",
+    "setup_async",
+    "wait_data_ready_async"
+  ],
+  "read_properties": [],
+  "support_level": "generatable"
+}
